@@ -27,6 +27,15 @@
     <ClCompile Include="src\sqlite\sqlite3.c">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="src\WinDic.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Config.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Env.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -39,6 +48,15 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="src\sqlite\sqlite3.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\WinDic.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Config.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Env.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

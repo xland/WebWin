@@ -91,18 +91,24 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\Env.cpp" />
+    <ClCompile Include="src\Config.cpp" />
     <ClCompile Include="src\App.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\sqlite\sqlite3.c" />
     <ClCompile Include="src\Util.cpp" />
+    <ClCompile Include="src\WinDic.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\Env.h" />
+    <ClInclude Include="src\Config.h" />
     <ClInclude Include="src\App.h" />
     <ClInclude Include="src\sqlite\sqlite3.h" />
     <ClInclude Include="src\Util.h" />
+    <ClInclude Include="src\WinDic.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
