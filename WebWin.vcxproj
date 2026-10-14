@@ -95,9 +95,11 @@
     <ClCompile Include="src\Config.cpp" />
     <ClCompile Include="src\App.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\Page.cpp" />
     <ClCompile Include="src\sqlite\sqlite3.c" />
     <ClCompile Include="src\Util.cpp" />
     <ClCompile Include="src\WinDic.cpp" />
+    <ClCompile Include="src\Win.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -106,9 +108,11 @@
     <ClInclude Include="src\Env.h" />
     <ClInclude Include="src\Config.h" />
     <ClInclude Include="src\App.h" />
+    <ClInclude Include="src\Page.h" />
     <ClInclude Include="src\sqlite\sqlite3.h" />
     <ClInclude Include="src\Util.h" />
     <ClInclude Include="src\WinDic.h" />
+    <ClInclude Include="src\Win.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

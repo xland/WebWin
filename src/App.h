@@ -5,8 +5,6 @@
 #include <wrl.h>
 #include <WebView2.h>
 
-
-
 class App
 {
 public:

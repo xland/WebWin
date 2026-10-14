@@ -36,6 +36,12 @@
     <ClCompile Include="src\Env.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="src\Win.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Page.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -57,6 +63,12 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="src\Env.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Win.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Page.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
