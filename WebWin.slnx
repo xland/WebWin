@@ -2,5 +2,5 @@
   <Configurations>
     <Platform Name="x64" />
   </Configurations>
-  <Project Path="QuickWin.vcxproj" Id="51c306b4-907d-4850-a8ea-190b3d76b7de" />
+  <Project Path="WebWin.vcxproj" Id="e6c982bc-e6e2-42fc-98e5-d7fcfbc9cb6b" />
 </Solution>

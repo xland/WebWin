@@ -1,36 +1,52 @@
-﻿#include <system_error>
+#include <memory>
+#include <shlobj.h>
+#include <shlwapi.h>
+#include <dispatcherqueue.h>
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.System.h>
+#include <winrt/Windows.Data.Json.h>
+#include "App.h"
 
-#include "Env.h"
-#include "Window.h"
-
-std::unique_ptr<Env> env;
-void Env::init()
+namespace {
+	std::unique_ptr<App> app;
+}
+App::App()
 {
-    Env::initDispatcherQueueCtrl();
-	env = std::make_unique<Env>();
-	env->checkRuntimeVersion();
-    env->initDataPath();
-    env->initWebViewEnv();
+    checkWebViewVersion();
+	initDataPath();
+	initWebViewEnv();
 }
 
-void Env::initDispatcherQueueCtrl()
+App::~App()
 {
-    DispatcherQueueOptions options{
-        sizeof(DispatcherQueueOptions),
-        DQTYPE_THREAD_CURRENT,
-        DQTAT_COM_NONE
-    };
+}
+
+void App::init()
+{
+	if (!app)
+	{
+        initDispatcherQueueCtrl();
+		app = std::make_unique<App>();
+	}
+}
+
+App* App::get()
+{
+	return app.get();
+}
+
+void App::initDispatcherQueueCtrl()
+{
+    DispatcherQueueOptions options{sizeof(DispatcherQueueOptions), DQTYPE_THREAD_CURRENT, DQTAT_COM_NONE};
     static winrt::Windows::System::DispatcherQueueController controller{ nullptr };
-    auto hr = CreateDispatcherQueueController(options,
-        reinterpret_cast<ABI::Windows::System::IDispatcherQueueController**>(winrt::put_abi(controller)));
+    auto hr = CreateDispatcherQueueController(options,reinterpret_cast<ABI::Windows::System::IDispatcherQueueController**>(winrt::put_abi(controller)));
     if (FAILED(hr))
     {
         MessageBox(NULL, L"无法创建DispatcherQueueController", L"系统提示", MB_OK);
         ExitProcess(-1);
     }
 }
-
-void Env::checkRuntimeVersion()
+void App::checkWebViewVersion()
 {
     std::wstring regSubKey = L"\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
     bool hasRuntime = checkRegKey(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WOW6432Node" + regSubKey);
@@ -45,7 +61,8 @@ void Env::checkRuntimeVersion()
         ExitProcess(-1);
     }
 }
-bool Env::checkRegKey(const HKEY& key, const std::wstring& subKey) {
+bool App::checkRegKey(const HKEY& key, const std::wstring& subKey) 
+{
 
     DWORD valueSize = 0;
     auto rc = RegGetValue(key, subKey.c_str(), L"pv", RRF_RT_REG_SZ, nullptr, nullptr, &valueSize);
@@ -72,17 +89,7 @@ bool Env::checkRegKey(const HKEY& key, const std::wstring& subKey) {
     if (versions < minVersion) return false;
     return true;
 }
-
-std::filesystem::path Env::getDataPath()
-{
-    return env->dataPath;
-}
-ICoreWebView2Environment* Env::getWebViewEnv()
-{
-    return env->webViewEnv.Get();
-}
-
-void Env::initDataPath()
+void App::initDataPath()
 {
     PWSTR pathTmp = nullptr;
     auto hr = SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &pathTmp);
@@ -92,25 +99,33 @@ void Env::initDataPath()
     }
     dataPath.assign(pathTmp);
     CoTaskMemFree(pathTmp);
-    dataPath /= L"KnowNode"; //重要：此处要使用开发者通过配置文件设置的应用名称
+	dataPath /= L"WebWin"; //todo 这里应该使用用户在package.json中配置的应用名称，而不是固定的 DraftDepot
 
     std::error_code ec;
     std::filesystem::create_directories(dataPath, ec);
     if (ec) {
-        auto msg = L"无法创建应用数据目录\n\n" + dataPath.wstring()
-            + L"\n\nerror_code = " + std::to_wstring(ec.value());
+        auto msg = L"无法创建应用数据目录\n\n" + dataPath.wstring() + L"\n\nerror_code = " + std::to_wstring(ec.value());
         MessageBox(nullptr, msg.c_str(), L"系统提示", MB_OK);
         ExitProcess(-1);
     }
 }
-
-void Env::initWebViewEnv()
+std::filesystem::path App::getDataPath()
 {
-    auto envReadyCB = Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(this, &Env::onEnvReady);
+    return app->dataPath;
+}
+
+ICoreWebView2Environment* App::getWebViewEnv()
+{
+    return app->webViewEnv.Get();
+}
+
+void App::initWebViewEnv()
+{
+    auto envReadyCB = Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(this, &App::onEnvReady);
     CreateCoreWebView2EnvironmentWithOptions(nullptr, dataPath.c_str(), nullptr, envReadyCB.Get());
 }
 
-HRESULT Env::onEnvReady(HRESULT result, ICoreWebView2Environment* env)
+HRESULT App::onEnvReady(HRESULT result, ICoreWebView2Environment* env)
 {
     if (FAILED(result)) {
         MessageBox(nullptr, L"WebView2环境初始化失败", L"系统提示", MB_OK);

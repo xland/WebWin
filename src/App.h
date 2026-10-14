@@ -1,33 +1,30 @@
-﻿#pragma once
-#include <filesystem>
+#pragma once
+
 #include <Windows.h>
-#include <shlobj.h>
-#include <shlwapi.h>
-#include <WebView2.h>
+#include <filesystem>
 #include <wrl.h>
-#include <dispatcherqueue.h>
-#include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.System.h>
-#include <winrt/Windows.Data.Json.h>
+#include <WebView2.h>
 
 using namespace Microsoft::WRL;
-using namespace winrt::Windows::Data::Json;
 
-class Env
+class App
 {
 public:
+	~App();
 	static void init();
+	static App* get();
 	static std::filesystem::path getDataPath();
 	static ICoreWebView2Environment* getWebViewEnv();
 private:
-	void checkRuntimeVersion();
+	App();
+	static void initDispatcherQueueCtrl();
+	void checkWebViewVersion();
 	bool checkRegKey(const HKEY& key, const std::wstring& subKey);
 	void initDataPath();
 	void initWebViewEnv();
-	static void initDispatcherQueueCtrl();
 	HRESULT onEnvReady(HRESULT result, ICoreWebView2Environment* env);
 private:
-	std::filesystem::path dataPath; 
+	std::filesystem::path dataPath;
 	ComPtr<ICoreWebView2Environment> webViewEnv;
 };
 

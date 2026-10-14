@@ -13,10 +13,9 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{51c306b4-907d-4850-a8ea-190b3d76b7de}</ProjectGuid>
-    <RootNamespace>QuickWin</RootNamespace>
+    <ProjectGuid>{e6c982bc-e6e2-42fc-98e5-d7fcfbc9cb6b}</ProjectGuid>
+    <RootNamespace>WebWin</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <WebView2LoaderPreference>Static</WebView2LoaderPreference>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
@@ -24,6 +23,8 @@
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
+    <OutDir>$(ProjectDir)build\debug\</OutDir>
+    <IntDir>$(ProjectDir)build\temp\debug\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -31,6 +32,8 @@
     <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
+    <OutDir>$(ProjectDir)build\release\</OutDir>
+    <IntDir>$(ProjectDir)build\temp\release\</IntDir>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -44,25 +47,20 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
-  <PropertyGroup Label="输出目录">
-    <OutDir>$(ProjectDir)Build\$(Configuration)\</OutDir>
-    <IntDir>$(ProjectDir)Build\Temp\$(Configuration)\</IntDir>
-  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      <AdditionalIncludeDirectories>D:\sdk\quickjs;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>D:\sdk\quickjs\build\$(Configuration)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>qjs.lib;shlwapi.lib;dwmapi.lib;shell32.lib;usp10.lib;kernel32.lib;user32.lib;gdiplus.lib;windowsapp.lib;windowscodecs.lib;version.lib;urlmon.lib;ws2_32.lib;iphlpapi.lib;crypt32.lib;wtsapi32.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>dwmapi.lib;shell32.lib;usp10.lib;kernel32.lib;user32.lib;windowsapp.lib;windowscodecs.lib;version.lib;urlmon.lib;onecore.lib;ws2_32.lib;iphlpapi.lib;crypt32.lib;wtsapi32.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
@@ -75,17 +73,16 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>D:\sdk\quickjs;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>D:\sdk\quickjs\build\$(Configuration)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>qjs.lib;shlwapi.lib;dwmapi.lib;shell32.lib;usp10.lib;kernel32.lib;user32.lib;gdiplus.lib;windowsapp.lib;windowscodecs.lib;version.lib;urlmon.lib;ws2_32.lib;iphlpapi.lib;crypt32.lib;wtsapi32.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>dwmapi.lib;shell32.lib;usp10.lib;kernel32.lib;user32.lib;windowsapp.lib;windowscodecs.lib;version.lib;urlmon.lib;onecore.lib;ws2_32.lib;iphlpapi.lib;crypt32.lib;wtsapi32.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
@@ -93,11 +90,7 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Src\main.cpp" />
-    <ClCompile Include="Src\SQLite\sqlite3.c" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="Src\SQLite\sqlite3.h" />
+    <ClCompile Include="src\main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
