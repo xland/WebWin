@@ -44,12 +44,31 @@
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `id` | 字符串 | — | 应用 ID，**必须是英文** |
+| `id` | 字符串 | `webwin` | 应用 ID，**必须是英文**；约束见下 |
 | `name` | 字符串 | — | 应用名称，**可以是中文** |
 | `version` | 数组 | `[1,1,1]` | 应用版本号，**必须是三个数字的数组** |
 | `quitWhenNoWindow` | 布尔 | `true` | 当所有窗口关闭时，退出应用程序 |
 
-> `id` 同时被用作 WebView2 的**虚拟主机名**（见 `window.webview.path`）。
+### `id` 的约束
+
+`id` 同时承担两个职责，因此受两套规则约束：
+
+1. **WebView2 的虚拟主机名**（见 `window.webview.path`）：页面地址为 `https://{id}/index.html`。
+2. **Windows 的 AppUserModelID**：框架在读配置后、窗口呈现前调用
+   `SetCurrentProcessExplicitAppUserModelID(id)`，
+   决定任务栏分组、跳转列表与通知归属。
+
+> 同一份 `exe` 会分发给不同开发者的不同应用，
+> **只靠 AppUserModelID 才能让每个应用在任务栏上拥有独立身份**，
+> 否则它们会全部归并到同一个任务栏图标下。
+
+约束（源自 AppUserModelID 官方限制）：
+
+- **必须是英文**
+- **不超过 128 个字符**
+- **不能包含空格**
+- 推荐点分格式：`CompanyName.ProductName.SubProduct.VersionInformation`
+- 缺失或显式配置为空串时，回落到默认值 `webwin`
 
 ## 窗口字段 `window.*`
 
@@ -135,7 +154,8 @@ https://{appId}/index.html
    `contextMenuEnable`）未给出类型与默认值，待补（推测为布尔）。
 2. **多屏幕下"当前屏幕"的判定**：`size` 的 `maximize` / `fullScreen` 与 `pos` 的
    `centerScreen` 都提到"当前屏幕"——指主显示器、还是鼠标所在显示器，待明确。
-3. **`id` / `name` 是否必填**、缺失时如何处置（是否落到内置默认页面，见 `05-boot-config.md`）。
+3. ~~**`id` / `name` 是否必填**、缺失时如何处置~~ → **`id` 已定默认值 `webwin`**（见上）；
+   `name` 缺失时如何处置仍待定（是否落到内置默认页面，见 `05-boot-config.md`）。
 4. **`resizable: false` 与 `miniSize` / `maxSize` 同时配置时**如何取舍，待明确。
 5. **`transparent` 与子窗口模式**：透明窗口通常需要分层窗口支持，而本项目以子窗口 HWND
    方式集成 WebView2（见 `03-tech-stack.md` 的 Airspace 限制）。

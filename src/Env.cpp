@@ -4,7 +4,7 @@
 #include <vector>
 #include "Env.h"
 #include "App.h"
-#include "Config.h"
+#include "Win.h"
 
 namespace {
 	std::unique_ptr<Env> env;
@@ -12,8 +12,7 @@ namespace {
 
 Env::Env()
 {
-    checkWebViewVersion();
-    initWebViewEnv();
+
 }
 
 Env::~Env()
@@ -26,6 +25,8 @@ void Env::init()
 	{
         Env* rawPtr = new Env();
         env = std::unique_ptr<Env>(rawPtr);
+        rawPtr->checkWebViewVersion();
+        rawPtr->initWebViewEnv();
 	}
 }
 
@@ -80,6 +81,7 @@ bool Env::checkRegKey(const HKEY& key, const std::wstring& subKey)
 }
 ICoreWebView2Environment* Env::getEnv()
 {
+	if (!env) return nullptr;
     return env->webViewEnv.Get();
 }
 
@@ -96,6 +98,7 @@ HRESULT Env::onEnvReady(HRESULT result, ICoreWebView2Environment* env)
         ExitProcess(-1);
     }
     webViewEnv = env;
-    Config::init();
+    // 配置与窗口已在 App::init 中就绪，环境一好就把控制器补上
+    if (auto win = Win::getFirst()) win->createCtrl();
     return S_OK;
 }

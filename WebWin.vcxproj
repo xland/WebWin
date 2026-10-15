@@ -93,7 +93,6 @@
   <ItemGroup>
     <ClCompile Include="src\Json.cpp" />
     <ClCompile Include="src\Env.cpp" />
-    <ClCompile Include="src\Config.cpp" />
     <ClCompile Include="src\App.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\Page.cpp" />
@@ -107,7 +106,6 @@
   <ItemGroup>
     <ClInclude Include="src\Json.h" />
     <ClInclude Include="src\Env.h" />
-    <ClInclude Include="src\Config.h" />
     <ClInclude Include="src\App.h" />
     <ClInclude Include="src\Page.h" />
     <ClInclude Include="src\sqlite\sqlite3.h" />

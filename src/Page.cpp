@@ -7,7 +7,22 @@
 #include "Env.h"
 #include "Win.h"
 #include "Page.h"
+#include "Util.h"
 
+namespace {
+	// 内置默认页面：暂时简单写死，后续再正式设计（待办 T007）
+	const wchar_t* defaultPageHtml = LR"html(
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>WebWin</title></head>
+<body style="font-family: system-ui, sans-serif; padding: 48px; color: #222;">
+  <h1>WebWin</h1>
+  <p>没有加载到可用的应用配置，这是框架内置的默认页面。</p>
+  <p>请在 exe 同目录下提供 package.json</p>
+</body>
+</html>
+)html";
+}
 
 
 Page::Page(Win* win, const ComPtr<ICoreWebView2>& webview) :win{ win }, webview{ webview }
@@ -29,15 +44,36 @@ Page::Page(Win* win, const ComPtr<ICoreWebView2>& webview) :win{ win }, webview{
 
     auto closeWindowCB = Callback<ICoreWebView2WindowCloseRequestedEventHandler>(this, &Page::onCloseWindow);
     webview->add_WindowCloseRequested(closeWindowCB.Get(), nullptr);
+    loadPage();
+}
 
-#ifdef _DEBUG
-	// 调试：用 vite 开发服务器，改前端不必重新编译 exe
-	webview->Navigate(L"http://localhost:5173");
-#else
-	// 发布：前端产物编进了 exe 资源（见 Resource.rc 里那块 dist 清单），走虚拟域名——
-	// 请求由 onRequest 从资源里应答，一个 exe 就能独立跑，不依赖本机任何文件
-	webview->Navigate(L"https://app.localhost/index.html");
-#endif
+void Page::loadPage()
+{
+	auto path = win->webviewPath;
+	if (path.starts_with(L"http://") || path.starts_with(L"https://"))
+	{
+		webview->Navigate(path.c_str()); // path 是 url 地址，直接加载
+		return;
+	}
+
+	// path 是目录：相对路径以 exe 所在目录为基准
+	std::filesystem::path folder{ path };
+	if (folder.is_relative()) folder = Util::getExeDir() / folder;
+
+	// 目录映射为虚拟域名 https://{appId}/，页面地址即 https://{appId}/index.html
+	auto appId = App::get()->getId(); // 未配置时为默认 ID，不会是空串
+	if (win->webviewConfigured && std::filesystem::exists(folder / L"index.html"))
+	{
+		ComPtr<ICoreWebView2_3> webview3;
+		webview.As(&webview3);
+		webview3->SetVirtualHostNameToFolderMapping(appId.c_str(), folder.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+		webview->Navigate((L"https://" + appId + L"/index.html").c_str());
+		return;
+	}
+
+	// 走到这里说明配置不可用：没读到 package.json / webwin / window / webview，
+	// 或者 path 目录下没有 index.html —— 显示内置默认页面
+	webview->NavigateToString(defaultPageHtml);
 }
 
 void Page::emit(const JsonObject& eventData)
