@@ -35,7 +35,8 @@
       "transparent": false,
       "webview": {
         "path": ".",
-        "allowWindowOpen": true
+        "allowWindowOpen": true,
+        "allowRemoteSdk": false
       }
     }
   }
@@ -125,13 +126,20 @@
 
 | 字段              | 类型   | 默认值 | 说明                                                                                                   |
 | ----------------- | ------ | ------ | ------------------------------------------------------------------------------------------------------ |
-| `path`            | 字符串 | `.`    | 可以是一个**目录**或一个 **URL 地址**。若是目录，该目录下必须有 `index.html`；可以是相对路径或绝对路径 |
+| `path`            | 字符串 | `.`    | 可以是一个**目录**、一个 **HTML 文件**或一个 **URL 地址**。若是目录，该目录下必须有 `index.html`；可以是相对路径或绝对路径（相对路径以 `package.json` 所在目录为基准，见 `05-boot-config.md`） |
 | `allowWindowOpen` | 布尔   | `true` | 是否允许在页面中打开新窗口                                                                             |
+| `allowRemoteSdk`   | 布尔   | `false` | 是否允许把 JS SDK 注入到**非应用自身来源**的文档；`false` 时只注入 `path` 指定的来源                   |
 
 `path` 为目录时，实际会被格式化为：
 
 ```
 https://{appId}/index.html
+```
+
+`path` 直接指向 html 文件时，映射**该文件所在目录**，页面为该文件：
+
+```
+path: "win.html"  →  https://{appId}/win.html
 ```
 
 即：把该目录映射为以**应用 ID 作为虚拟主机名**的来源（对应 WebView2 的

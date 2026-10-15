@@ -3,6 +3,11 @@
 #undef APSTUDIO_READONLY_SYMBOLS
 100 ICON "res/logo.ico"
 
+// 随 exe 内嵌的 web 资源：src/web 下的产物（js 注入到页面，html 作为内置默认页面）。
+// 改了 src/web 下的源码后，需先在该目录执行 npm run build:all 重新生成 dist
+"webwin.js" RCDATA "web/dist/webwin.js"
+"default.html" RCDATA "web/dist/default.html"
+
 
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION 0, 0, 1, 0

@@ -67,18 +67,33 @@ WebWin.on('window.resize', (e) => { ... });
 | 请求 / 响应关联 | **引入 request id** |
 | 消息通道 | **API 响应与框架事件共用同一条 `message` 通道** |
 | JS SDK 交付方式 | **内置于 `exe` 中，随 exe 分发**；另附一个 `.d.ts` 供开发期类型提示（**不单独发 npm 包**） |
+| SDK 注入范围 | **默认只注入应用自身来源的页面**；`webview.allowRemoteSdk` 打开后不做来源判断、无条件注入 |
 
 > 备注：单通道 + request id 同时也符合项目的"效率优先"原则 ——
 > 少建一条通道，少一层分发开销，消息体积也更小。
 
-## 消息协议（拟定，待确认）
+## 消息协议（通道层已落地）
+
+通道层已按本协议实现：`src/web/webwin.ts` 编译后以 RCDATA 资源内嵌（`src/web/dist/webwin.js`），
+由 `Page::injectSdk()` 用 `AddScriptToExecuteOnDocumentCreated` 注入。
+通信能力是 `Ipc` 基类（`protected`，不暴露给开发者），各能力域继承它；
+窗口能力域（`Win` / 全局 `win`）已落地，其余能力随 `01-api.md` 逐项开放。
+
+上行消息可携带 `winId`：它是"操作哪个窗口"的路由凭据，
+C++ 侧据此把消息落到指定窗口（见 `arch/07-web.md`）。
+
+**C++ 侧分两层分发**：`Page` 只按 `type` 把消息路由到对应能力域的处理器，
+再由该处理器按 `method` 处理具体业务 —— 避免所有能力的方法都堆在 `Page` 里。
+
+> `error` 目前是**字符串**，协议里的 `{ code, message }` 等错误码表定下来后再改。
 
 共用一条通道意味着下行消息需要靠信封字段区分"响应"与"事件"。
 
 上行（JS → 框架，调用 API）：
 
 ```js
-{ id: 7, api: "dialog.openFile", params: { filters: [...] } }
+// type = 能力域，method = 该域下的具体动作
+{ id: 7, type: "dialog", method: "openFile", params: { filters: [...] }, winId: 1 }
 ```
 
 下行（框架 → JS）：

@@ -1,0 +1,23 @@
+{
+  "name": "webwin-demo",
+  "version": "1.0.0",
+  "private": true,
+  "webwin": {
+    "id": "webwin.demo",
+    "name": "WebWin 演示应用",
+    "version": [1, 0, 0],
+    "quitWhenNoWindow": true,
+    "window": {
+      "title": "WebWin 窗口 API 演示",
+      "size": { "w": 960, "h": 760 },
+      "miniSize": { "w": 400, "h": 300 },
+      "pos": "centerScreen",
+      "frame": true,
+      "webview": {
+        "path": "win.html",
+        "allowWindowOpen": true,
+        "allowRemoteSdk": false
+      }
+    }
+  }
+}

@@ -7,21 +7,21 @@
 #include "Env.h"
 #include "Win.h"
 #include "Page.h"
+#include "Json.h"
 #include "Util.h"
 
 namespace {
-	// 内置默认页面：暂时简单写死，后续再正式设计（待办 T007）
-	const wchar_t* defaultPageHtml = LR"html(
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>WebWin</title></head>
-<body style="font-family: system-ui, sans-serif; padding: 48px; color: #222;">
-  <h1>WebWin</h1>
-  <p>没有加载到可用的应用配置，这是框架内置的默认页面。</p>
-  <p>请在 exe 同目录下提供 package.json</p>
-</body>
-</html>
-)html";
+	// 取 exe 内嵌的 RCDATA 资源（src/web/dist 下的产物，见 Res.rc）
+	std::string loadTextResource(const wchar_t* name)
+	{
+		auto hRes = FindResource(nullptr, name, RT_RCDATA);
+		if (!hRes) return {};
+		auto hData = LoadResource(nullptr, hRes);
+		if (!hData) return {};
+		auto data = static_cast<const char*>(LockResource(hData));
+		auto size = SizeofResource(nullptr, hRes);
+		return { data, size };
+	}
 }
 
 
@@ -44,7 +44,23 @@ Page::Page(Win* win, const ComPtr<ICoreWebView2>& webview) :win{ win }, webview{
 
     auto closeWindowCB = Callback<ICoreWebView2WindowCloseRequestedEventHandler>(this, &Page::onCloseWindow);
     webview->add_WindowCloseRequested(closeWindowCB.Get(), nullptr);
+
+    injectSdk(); // 必须在导航之前注册，之后创建的每个文档都会执行
     loadPage();
+}
+
+void Page::injectSdk()
+{
+	auto js = loadTextResource(L"webwin.js");
+	if (js.empty()) return; // exe 里没有内嵌 SDK：忘了在 src/ts 跑 npm run build:all
+
+	// SDK 据此判断"当前文档是不是应用自身的页面"
+	JsonObject config;
+	config.SetNamedValue(L"allowRemote", JsonValue::CreateBooleanValue(win->allowRemoteSdk));
+	config.SetNamedValue(L"origin", JsonValue::CreateStringValue(win->getPageOrigin()));
+	config.SetNamedValue(L"winId", JsonValue::CreateNumberValue(win->getId())); // 当前窗口 id
+	auto script = L"window.__webwinConfig__=" + std::wstring{ config.Stringify().c_str() } + L";\n" + Util::utf8ToWide(js);
+	webview->AddScriptToExecuteOnDocumentCreated(script.c_str(), nullptr);
 }
 
 void Page::loadPage()
@@ -56,24 +72,37 @@ void Page::loadPage()
 		return;
 	}
 
-	// path 是目录：相对路径以 exe 所在目录为基准
-	std::filesystem::path folder{ path };
-	if (folder.is_relative()) folder = Util::getExeDir() / folder;
+	// path 可以是目录（取其下 index.html），也可以直接指向某个 html 文件；
+	// 相对路径一律以 package.json 所在目录为基准
+	// （--path 启动时是 --path 那个目录，否则是 exe 同目录）
+	auto target = std::filesystem::path{ path };
+	if (target.is_relative()) target = App::getPackageBaseDir() / target;
 
-	// 目录映射为虚拟域名 https://{appId}/，页面地址即 https://{appId}/index.html
+	std::error_code ec;
+	auto folder = target;
+	auto page = std::wstring{ L"index.html" };
+	if (!std::filesystem::is_directory(folder, ec))
+	{
+		folder = target.parent_path();
+		page = target.filename().wstring();
+	}
+
+	// 目录映射为虚拟域名 https://{appId}/，页面地址即 https://{appId}/{page}
 	auto appId = App::get()->getId(); // 未配置时为默认 ID，不会是空串
-	if (win->webviewConfigured && std::filesystem::exists(folder / L"index.html"))
+	if (win->webviewConfigured && std::filesystem::exists(folder / page, ec))
 	{
 		ComPtr<ICoreWebView2_3> webview3;
 		webview.As(&webview3);
 		webview3->SetVirtualHostNameToFolderMapping(appId.c_str(), folder.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
-		webview->Navigate((L"https://" + appId + L"/index.html").c_str());
+		webview->Navigate((L"https://" + appId + L"/" + page).c_str());
 		return;
 	}
 
 	// 走到这里说明配置不可用：没读到 package.json / webwin / window / webview，
 	// 或者 path 目录下没有 index.html —— 显示内置默认页面
-	webview->NavigateToString(defaultPageHtml);
+	//（src/web/default.html 编译压缩后内嵌为 RCDATA 资源，见 Res.rc）
+	auto html = Util::utf8ToWide(loadTextResource(L"default.html"));
+	webview->NavigateToString(html.empty() ? L"<html><body>no config</body></html>" : html.c_str());
 }
 
 void Page::emit(const JsonObject& eventData)
@@ -83,6 +112,16 @@ void Page::emit(const JsonObject& eventData)
 }
 
 
+void Page::emitEvent(const std::wstring& name, int winId, const JsonObject& payload)
+{
+    JsonObject msg;
+    msg.SetNamedValue(L"name", JsonValue::CreateStringValue(name));
+    msg.SetNamedValue(L"winId", JsonValue::CreateNumberValue(winId));
+    msg.SetNamedValue(L"payload", JsonValue::Parse(payload.Stringify()));
+    auto msgStr = msg.Stringify();
+    webview->PostWebMessageAsJson(msgStr.data());
+}
+
 HRESULT Page::onMsgReceived(ICoreWebView2* webview, ICoreWebView2WebMessageReceivedEventArgs* args)
 {
     PWSTR jsonRaw;
@@ -90,17 +129,26 @@ HRESULT Page::onMsgReceived(ICoreWebView2* webview, ICoreWebView2WebMessageRecei
     if (FAILED(hr)) return S_OK;
     JsonObject param = JsonObject::Parse(jsonRaw);
     CoTaskMemFree(jsonRaw);
-    auto method = param.GetNamedString(L"method");
+
+    // 协议见 arch/02-architecture.md：上行 { id, type, method, params, winId? }
+    // type 是能力域，method 是该域下的具体动作
+    auto type = Json::getString(param, L"type", L"");
+    auto method = Json::getString(param, L"method", L"");
+    auto params = Json::getObject(param, L"params");
+    auto winId = Json::getInt(param, L"winId", -1); // -1 表示该消息与窗口无关
+
     JsonObject result;
-    result.SetNamedValue(L"id", JsonValue::CreateStringValue(param.GetNamedString(L"id")));
-    if (method == L"showWindow") {
-    }
+    result.SetNamedValue(L"id", JsonValue::CreateNumberValue(Json::getInt(param, L"id", 0)));
+
+    // 只按能力域分发：Page 认识域，具体方法交给各域自己处理。
+    // 否则所有能力的方法都会堆在这一个文件里，加一个能力就膨胀一次
+    if (type == L"win") Win::handleApi(method, params, winId, this, result);
     else {
-        // 未知方法回一个 error：前端 Msg.invoke 会 reject，而不是静默 resolve(undefined)。
+        // 未知域回一个 error：前端 invoke 会 reject，而不是静默 resolve(undefined)。
         // 之前"原生侧改了却忘了重新编译 exe"就是被静默吞掉的，补上这条能直接暴露出来
-        std::wstring message = L"unknown method: " + std::wstring(method.c_str());
-        result.SetNamedValue(L"error", JsonValue::CreateStringValue(message));
+        Json::setError(result, L"unknown type: " + type);
     }
+
     auto resultStr = result.Stringify();
     webview->PostWebMessageAsJson(resultStr.data());
     return S_OK;

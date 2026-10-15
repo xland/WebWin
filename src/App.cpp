@@ -16,6 +16,12 @@ using namespace winrt::Windows::Data::Json;
 
 namespace {
 	std::unique_ptr<App> app;
+	// 命令行 --path=... 指明的 package.json 所在目录；空则走默认（exe 同目录）
+	std::filesystem::path packagePathOverride;
+	// 实际生效的基准目录：命令行为主，否则 exe 同目录
+	std::filesystem::path packageBaseDir;
+	// package.json 里读到的 window 配置，供建窗口时用
+	JsonObject windowConfig{ nullptr };
 }
 
 App::App()
@@ -33,8 +39,10 @@ void App::init()
         initDispatcherQueueCtrl();
         App* rawPtr = new App();
         app = std::unique_ptr<App>(rawPtr);
+        // 顺序有依赖：先读配置拿到应用 id → 数据目录按 id 建 → 再按配置建窗口
+        app->readPackageJson();
         app->initDataPath();
-        app->readPackageJson(); // 尽早读配置并建窗口，不必等 WebView2 环境就绪
+        app->createWindow(); // 尽早建窗口，不必等 WebView2 环境就绪
         Env::init();
 	}
 }
@@ -42,6 +50,16 @@ void App::init()
 App* App::get()
 {
 	return app.get();
+}
+
+void App::setPackagePath(std::filesystem::path path)
+{
+	packagePathOverride = std::move(path);
+}
+
+std::filesystem::path App::getPackageBaseDir()
+{
+	return packageBaseDir;
 }
 
 void App::initDispatcherQueueCtrl()
@@ -66,7 +84,12 @@ void App::initDataPath()
     }
     dataPath.assign(pathTmp);
     CoTaskMemFree(pathTmp);
-	dataPath /= L"WebWin"; //todo 这里应该使用用户在package.json中配置的应用名称，而不是固定的 DraftDepot
+	// 数据目录：%APPDATA%\WebWin\{应用id}
+	// 厂商目录 WebWin 保证不同框架用户的数据不会散落在 Roaming 根下；
+	// 再按应用 id 分一层，同一份 exe 分发给不同应用时数据互不干扰
+	// （id 缺失时已回落为默认值 webwin，见 readPackageJson）
+	dataPath /= L"WebWin";
+	dataPath /= id;
 
     std::error_code ec;
     std::filesystem::create_directories(dataPath, ec);
@@ -104,8 +127,11 @@ bool App::getQuitWhenNoWindow() const
 
 void App::readPackageJson()
 {
-	JsonObject window;
-	std::ifstream file(Util::getExeDir() / L"package.json", std::ios::binary);
+	// 命令行 --path=... 指明了 package.json 所在目录时，优先使用；
+	// 否则按原约定走 exe 同目录。
+	// 记录下"实际生效"的基准目录，供入口 HTML / webview 资源解析时复用
+	packageBaseDir = packagePathOverride.empty() ? Util::getExeDir() : packagePathOverride;
+	std::ifstream file(packageBaseDir / L"package.json", std::ios::binary);
 	if (file) // package.json 不存在时保持各字段默认值，window 为空对象
 	{
 		std::string content{ std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
@@ -119,7 +145,7 @@ void App::readPackageJson()
 		name = Json::getString(webwin, L"name", name);
 		quitWhenNoWindow = Json::getBool(webwin, L"quitWhenNoWindow", quitWhenNoWindow);
 		auto windowObj = Json::getObject(webwin, L"window");
-		if (windowObj) window = windowObj;
+		if (windowObj) windowConfig = windowObj;
 
 		auto vers = Json::getIntArray(webwin, L"version");
 		if (vers.size() >= 3) version = { vers[0], vers[1], vers[2] };
@@ -130,6 +156,9 @@ void App::readPackageJson()
 	// 同一份 exe 分发给不同应用时，靠它让每个应用有独立的任务栏身份。
 	// 必须在窗口呈现之前调用
 	SetCurrentProcessExplicitAppUserModelID(id.c_str());
+}
 
-	Win::Create(window);
+void App::createWindow()
+{
+	Win::Create(windowConfig ? windowConfig : JsonObject{});
 }

@@ -1,0 +1,17 @@
+{
+  "name": "webwin-web",
+  "version": "0.0.1",
+  "private": true,
+  "description": "WebWin 前端资源源码：TS SDK 与内置默认页面。产物输出到 dist，由 exe 以 RCDATA 资源内嵌",
+  "scripts": {
+    "build:js": "esbuild webwin.ts --bundle --minify --format=iife --target=es2020 --outfile=dist/webwin.js",
+    "build:html": "node minify-html.mjs",
+    "types": "tsc -p tsconfig.json",
+    "build:all": "npm run build:js && npm run build:html && npm run types"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "html-minifier-terser": "^7.2.0",
+    "typescript": "^5.9.0"
+  }
+}

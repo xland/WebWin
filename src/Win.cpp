@@ -1,4 +1,6 @@
+#include <map>
 #include <memory>
+#include <set>
 #include <vector>
 #include <dwmapi.h>
 
@@ -9,6 +11,9 @@
 
 namespace {
     std::vector<std::unique_ptr<Win>> winDic;
+	// 订阅表：(窗口 id, 事件名) -> 订阅该事件的页面。
+	// 同一个窗口的同一事件可以被多个页面同时订阅（A 和 C 都听 B 的 resize）
+	std::map<std::pair<int, std::wstring>, std::set<Page*>> eventSubs;
 
 	void removeWin(Win* win)
 	{
@@ -16,9 +21,12 @@ namespace {
 	}
 }
 
+int Win::lastId = 0;
+
 
 Win::Win(const JsonObject& config)
 {
+	id = ++lastId; // 自增整数，由 C++ 分配：跨页面、跨窗口都不会撞
 	readConfig(config);
 }
 
@@ -92,7 +100,21 @@ void Win::readConfig(const JsonObject& config)
 		webviewConfigured = true;
 		webviewPath = Json::getString(webview, L"path", webviewPath);
 		allowWindowOpen = Json::getBool(webview, L"allowWindowOpen", allowWindowOpen);
+		allowRemoteSdk = Json::getBool(webview, L"allowRemoteSdk", allowRemoteSdk);
 	}
+}
+
+std::wstring Win::getPageOrigin()
+{
+	// 页面自身的来源：目录映射为虚拟域名 https://{id}，URL 取其 origin
+	// SDK 靠它判断"当前文档是不是应用自己的页面"
+	//（URL 指向开发服务器时，取出来的就是 http://host:port，调试场景同样成立）
+	auto schemeEnd = webviewPath.find(L"://");
+	if (schemeEnd == std::wstring::npos) return L"https://" + App::get()->getId();
+	auto hostStart = schemeEnd + 3;
+	auto hostEnd = webviewPath.find(L'/', hostStart);
+	if (hostEnd == std::wstring::npos) hostEnd = webviewPath.length();
+	return webviewPath.substr(0, hostEnd);
 }
 
 void Win::createNativeWindow()
@@ -194,6 +216,87 @@ Win* Win::getFirst()
 	return winDic.front().get();
 }
 
+Win* Win::getById(int id)
+{
+	for (auto& win : winDic)
+	{
+		if (win->id == id) return win.get();
+	}
+	return nullptr; // 窗口已关闭
+}
+
+void Win::subscribeEvent(int winId, const std::wstring& name, Page* page)
+{
+	eventSubs[{ winId, name }].insert(page);
+}
+
+void Win::unsubscribeEvent(int winId, const std::wstring& name, Page* page)
+{
+	auto it = eventSubs.find({ winId, name });
+	if (it == eventSubs.end()) return;
+	it->second.erase(page);
+	if (it->second.empty()) eventSubs.erase(it);
+}
+
+void Win::fireEvent(int winId, const std::wstring& name, const JsonObject& payload)
+{
+	auto it = eventSubs.find({ winId, name });
+	if (it == eventSubs.end()) return; // 没人订阅：不发
+	auto subscribers = it->second; // 拷贝：回调过程中订阅表可能变动
+	for (auto page : subscribers) page->emitEvent(name, winId, payload);
+}
+
+void Win::handleApi(const std::wstring& method, const JsonObject& params, int winId, Page* page, JsonObject& result)
+{
+	// 事件订阅：登记"哪个页面要听哪个窗口的哪个事件"，之后才推（订阅后推）
+	if (method == L"on" || method == L"off")
+	{
+		auto name = Json::getString(params, L"name", L"");
+		if (winId < 0 || name.empty()) { Json::setError(result, L"invalid event subscription"); return; }
+		if (method == L"on") subscribeEvent(winId, name, page);
+		else unsubscribeEvent(winId, name, page);
+		Json::setOk(result);
+		return;
+	}
+
+	// 新建窗口：配置复用 package.json 里 window 那套结构，返回新窗口的 id
+	if (method == L"create")
+	{
+		auto created = Create(params ? params : JsonObject{});
+		Json::setOk(result);
+		result.SetNamedValue(L"data", JsonValue::CreateNumberValue(created->getId()));
+		return;
+	}
+
+	// 其余方法都要落到具体窗口上：winId 是唯一的路由凭据。
+	// 窗口已关闭时 getById 拿不到，直接返回错误字符串
+	auto target = getById(winId);
+	if (!target) { Json::setError(result, L"window not found: " + std::to_wstring(winId)); return; }
+	auto hwnd = target->hwnd;
+
+	if (method == L"maximize") ShowWindow(hwnd, SW_MAXIMIZE);
+	else if (method == L"minimize") ShowWindow(hwnd, SW_MINIMIZE);
+	else if (method == L"restore") ShowWindow(hwnd, SW_RESTORE);
+	else if (method == L"hide") ShowWindow(hwnd, SW_HIDE);
+	else if (method == L"show") ShowWindow(hwnd, SW_SHOW);
+	else if (method == L"close") PostMessage(hwnd, WM_CLOSE, 0, 0);
+	else if (method == L"destroy") DestroyWindow(hwnd);
+	else if (method == L"resize")
+	{
+		RECT rect;
+		GetWindowRect(hwnd, &rect);
+		SetWindowPos(hwnd, nullptr, rect.left, rect.top, Json::getInt(params, L"width", 0), Json::getInt(params, L"height", 0), SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+	else if (method == L"move")
+	{
+		RECT rect;
+		GetWindowRect(hwnd, &rect);
+		SetWindowPos(hwnd, nullptr, Json::getInt(params, L"x", 0), Json::getInt(params, L"y", 0), rect.right - rect.left, rect.bottom - rect.top, SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+	else { Json::setError(result, L"unknown method: " + method); return; }
+	Json::setOk(result);
+}
+
 std::wstring& Win::getClsName()
 {
     static std::wstring clsName = [] {
@@ -225,12 +328,24 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	{
 	case WM_SIZE:
 	{
-		if (winObj->ctrl)
-		{
-			RECT bounds;
-			GetClientRect(hwnd, &bounds);
-			winObj->ctrl->put_Bounds(bounds);
-		}
+		RECT bounds;
+		GetClientRect(hwnd, &bounds);
+		if (winObj->ctrl) winObj->ctrl->put_Bounds(bounds);
+		// 窗口大小变化：推给所有订阅者（可能是别的页面持有的这个窗口对象）
+		JsonObject payload;
+		payload.SetNamedValue(L"width", JsonValue::CreateNumberValue(bounds.right - bounds.left));
+		payload.SetNamedValue(L"height", JsonValue::CreateNumberValue(bounds.bottom - bounds.top));
+		Win::fireEvent(winObj->id, L"resize", payload);
+		return 0;
+	}
+	case WM_MOVE:
+	{
+		RECT rect;
+		GetWindowRect(hwnd, &rect);
+		JsonObject payload;
+		payload.SetNamedValue(L"x", JsonValue::CreateNumberValue(rect.left));
+		payload.SetNamedValue(L"y", JsonValue::CreateNumberValue(rect.top));
+		Win::fireEvent(winObj->id, L"move", payload);
 		return 0;
 	}
 	case WM_GETMINMAXINFO:
@@ -251,6 +366,14 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	}
 	case WM_DESTROY:
 	{
+		// 窗口没了：它作为被订阅对象的条目、以及它自己订阅的条目，全部清理，
+		// 否则订阅表会留下悬挂的 Page* 与失效的窗口 id
+		for (auto it = eventSubs.begin(); it != eventSubs.end();)
+		{
+			it->second.erase(winObj->page.get());
+			if (it->first.first == winObj->id || it->second.empty()) it = eventSubs.erase(it);
+			else ++it;
+		}
 		removeWin(winObj);
 		if (App::get()->getQuitWhenNoWindow() && winDic.empty()) PostQuitMessage(0);
 		return 0;

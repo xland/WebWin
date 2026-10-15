@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin 窗口 API 演示</title>
+	<style>
+		body {
+			font-family: system-ui, "Microsoft YaHei", sans-serif;
+			margin: 0;
+			padding: 24px;
+			color: #222;
+			background: #f7f7f8;
+		}
+
+		h1 {
+			font-size: 18px;
+			margin: 0 0 4px;
+		}
+
+		.note {
+			font-size: 12px;
+			color: #888;
+			margin-bottom: 20px;
+		}
+
+		section {
+			background: #fff;
+			border: 1px solid #e3e3e6;
+			border-radius: 8px;
+			padding: 16px;
+			margin-bottom: 16px;
+		}
+
+		h2 {
+			font-size: 14px;
+			margin: 0 0 12px;
+			color: #444;
+		}
+
+		button {
+			font: inherit;
+			font-size: 13px;
+			padding: 6px 12px;
+			margin: 0 8px 8px 0;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+			background: #fff;
+			cursor: pointer;
+		}
+
+		button:hover {
+			background: #f0f0f2;
+		}
+
+		button:disabled {
+			color: #bbb;
+			border-color: #e3e3e6;
+			cursor: not-allowed;
+		}
+
+		.danger {
+			color: #c0392b;
+			border-color: #e0b4b0;
+		}
+
+		#log {
+			height: 220px;
+			overflow: auto;
+			background: #1e1e1e;
+			color: #d4d4d4;
+			font-family: Consolas, "Courier New", monospace;
+			font-size: 12px;
+			line-height: 1.6;
+			padding: 12px;
+			border-radius: 6px;
+			white-space: pre-wrap;
+		}
+
+		.ok {
+			color: #6a9955;
+		}
+
+		.err {
+			color: #f07178;
+		}
+
+		.evt {
+			color: #4fc1ff;
+		}
+	</style>
+</head>
+
+<body>
+	<h1>WebWin 窗口 API 演示</h1>
+	<div class="note">页面里直接可用的全局对象：<code>win</code>（当前窗口）与 <code>Win</code>（窗口类型）。</div>
+
+	<section>
+		<h2>当前窗口（win）</h2>
+		<button onclick="call('win.maximize', () => win.maximize())">maximize</button>
+		<button onclick="call('win.minimize', () => win.minimize())">minimize</button>
+		<button onclick="call('win.restore', () => win.restore())">restore</button>
+		<button onclick="call('win.hide', () => win.hide())">hide</button>
+		<button onclick="call('win.show', () => win.show())">show</button>
+		<button onclick="call('win.resize(1200, 800)', () => win.resize(1200, 800))">resize 1200×800</button>
+		<button onclick="call('win.resize(800, 600)', () => win.resize(800, 600))">resize 800×600</button>
+		<button onclick="call('win.move(100, 100)', () => win.move(100, 100))">move 100,100</button>
+		<button class="danger" onclick="call('win.close', () => win.close())">close（关闭本窗口）</button>
+	</section>
+
+	<section>
+		<h2>当前窗口事件</h2>
+		<button id="btnSub" onclick="toggleSubscribe()">订阅 win resize / move</button>
+		<span class="note">订阅后拖动窗口边缘，事件会打印到下方日志</span>
+	</section>
+
+	<section>
+		<h2>新建窗口（Win.create）</h2>
+		<button onclick="createWin()">Win.create(...)</button>
+		<button id="btnSub2" disabled onclick="toggleSubscribe2()">订阅新窗口 resize</button>
+		<button id="btnMax2" disabled onclick="call('win2.maximize', () => win2.maximize())">新窗口 maximize</button>
+		<button id="btnResize2" disabled onclick="call('win2.resize(600, 400)', () => win2.resize(600, 400))">新窗口 resize</button>
+		<button id="btnClose2" disabled class="danger" onclick="call('win2.close', () => win2.close())">新窗口 close</button>
+		<button id="btnDestroy2" disabled class="danger" onclick="call('win2.destroy', () => win2.destroy())">新窗口 destroy</button>
+		<div class="note">窗口关闭后再调用它的方法，应当拿到 C++ 返回的错误信息 —— 用「新窗口 maximize」验证。</div>
+	</section>
+
+	<section>
+		<h2>日志</h2>
+		<div id="log"></div>
+		<button onclick="document.getElementById('log').innerHTML = ''">清空</button>
+	</section>
+
+	<script>
+		const logBox = document.getElementById('log');
+		let win2 = null;        // 新建窗口的句柄
+		let offResize = null;   // 当前窗口事件的取消订阅函数
+		let offResize2 = null;  // 新窗口事件的取消订阅函数
+
+		function log(text, kind) {
+			const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+			const line = document.createElement('div');
+			if (kind) line.className = kind;
+			line.textContent = `[${time}] ${text}`;
+			logBox.appendChild(line);
+			logBox.scrollTop = logBox.scrollHeight;
+		}
+
+		async function call(label, fn) {
+			try {
+				await fn();
+				log(`${label} → ok`, 'ok');
+			} catch (e) {
+				log(`${label} → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// ---------- 当前窗口事件 ----------
+		function toggleSubscribe() {
+			const btn = document.getElementById('btnSub');
+			if (offResize) {
+				offResize();
+				offResize = null;
+				btn.textContent = '订阅 win resize / move';
+				log('已取消订阅当前窗口事件');
+				return;
+			}
+			const offR = win.on('resize', (p) => log(`win resize → ${p.width}×${p.height}`, 'evt'));
+			const offM = win.on('move', (p) => log(`win move → (${p.x}, ${p.y})`, 'evt'));
+			offResize = () => { offR(); offM(); };
+			btn.textContent = '取消订阅 win resize / move';
+			log('已订阅当前窗口的 resize / move');
+		}
+
+		// ---------- 新窗口 ----------
+		async function createWin() {
+			try {
+				win2 = await Win.create({
+					title: '新窗口',
+					size: { w: 640, h: 480 },
+					webview: { path: 'win.html' }
+				});
+				log('Win.create → ok，新窗口已创建', 'ok');
+				for (const id of ['btnMax2', 'btnResize2', 'btnClose2', 'btnDestroy2', 'btnSub2']) {
+					document.getElementById(id).disabled = false;
+				}
+			} catch (e) {
+				log(`Win.create → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		function toggleSubscribe2() {
+			const btn = document.getElementById('btnSub2');
+			if (offResize2) {
+				offResize2();
+				offResize2 = null;
+				btn.textContent = '订阅新窗口 resize';
+				log('已取消订阅新窗口事件');
+				return;
+			}
+			// 关键：事件由本页面持有的 win2 对象接收，而不是落在新窗口自己的 win 上
+			offResize2 = win2.on('resize', (p) => log(`win2 resize → ${p.width}×${p.height}`, 'evt'));
+			btn.textContent = '取消订阅新窗口 resize';
+			log('已订阅新窗口的 resize');
+		}
+
+		window.addEventListener('load', () => {
+			log(`SDK 就绪：win 对象${typeof win === 'undefined' ? '缺失' : '已注入'}`);
+			log(`location.origin = ${location.origin}`);
+			log(`window.__webwinConfig__ = ${JSON.stringify(window.__webwinConfig__ || null)}`);
+		});
+	</script>
+</body>
+
+</html>

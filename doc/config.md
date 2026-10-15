@@ -124,6 +124,7 @@ WebWin 的所有配置写在 `package.json` 里，集中在顶层对象的 `"web
 | --- | --- | --- | --- |
 | `path` | 字符串 | `.` | 页面来源：一个**目录**或一个 **URL 地址** |
 | `allowWindowOpen` | 布尔 | `true` | 是否允许页面中打开新窗口 |
+| `allowRemoteSdk` | 布尔 | `false` | 是否允许把 SDK 注入到**非应用自身来源**的页面，见下 |
 
 `path` 的两种写法：
 
@@ -141,6 +142,68 @@ WebWin 的所有配置写在 `package.json` 里，集中在顶层对象的 `"web
 "webview": { "path": "D:\\app\\dist" }         // 绝对路径
 "webview": { "path": "https://example.com" }   // 远程地址
 ```
+
+## 关于 `allowRemoteSdk`
+
+框架会把 `WebWin` SDK 注入到窗口中**每一个**页面文档，包括页面后来跳转到的站点、
+以及第三方 iframe。这些页面拿到 SDK 就等于拿到了文件、进程等系统能力，风险不小。
+
+因此默认行为是：**只把 SDK 装到应用自身的页面**（即 `path` 指定的来源），
+其他来源的文档一律不装。把 `allowRemoteSdk` 设为 `true` 则取消这个限制，
+不做任何来源判断地注入。
+
+```json
+"webview": { "path": ".", "allowRemoteSdk": false }
+```
+
+## JS SDK
+
+框架在页面文档创建时（早于页面自身脚本）注入 SDK。页面里可以直接使用两个全局对象：
+
+- **`win`** —— 当前窗口
+- **`Win`** —— 窗口类型，用来创建新窗口
+
+### 当前窗口
+
+```js
+win.maximize();
+win.minimize();
+win.restore();
+win.show();
+win.hide();
+await win.resize(1024, 768);
+await win.move(100, 100);
+await win.close();
+
+// 订阅当前窗口的事件，返回值用于取消订阅
+const off = win.on('resize', (payload) => {
+  console.log(payload.width, payload.height);
+});
+off(); // 取消订阅
+```
+
+### 新建窗口
+
+新窗口**只能**用 `Win.create()` 创建（不支持 `new Win(...)`）：
+
+```js
+const win2 = await Win.create({ title: '设置', size: { w: 600, h: 400 } });
+
+win2.maximize();            // 操作的是新窗口
+win2.on('resize', (p) => console.log('win2 大小变了', p)); // 新窗口的事件会送到这里
+await win2.close();
+```
+
+配置沿用 `webwin.window` 那一套字段（见上文窗口字段表），
+`path` 未指定时新窗口会显示框架内置页面。
+
+窗口关闭后再调用它的方法，会拿到一个错误。
+
+开发期类型提示：把 SDK 附带的 `webwin.d.ts` 放进你的前端工程即可
+（它不随 exe 分发，仅供开发期使用）。
+
+> 目前已实现**窗口**这一能力域。
+> 其余能力（`Fs` / `Clipboard` / `Dialog` / `Os` / `Screen` 等）会陆续开放。
 
 ## 配置不可用时
 
