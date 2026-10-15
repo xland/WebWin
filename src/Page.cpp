@@ -52,7 +52,15 @@ Page::Page(Win* win, const ComPtr<ICoreWebView2>& webview) :win{ win }, webview{
 void Page::injectSdk()
 {
 	auto js = loadTextResource(L"webwin.js");
-	if (js.empty()) return; // exe 里没有内嵌 SDK：忘了在 src/ts 跑 npm run build:all
+	if (js.empty())
+	{
+		// exe 里没有内嵌 SDK：忘了在 src/web 跑 npm run build:all，或资源没编进 exe。
+		// 静默跳过最难排查（页面里只表现为 win 未定义），所以直接弹出来
+		MessageBox(nullptr, L"exe 内未找到 SDK 资源 webwin.js", L"WebWin", MB_OK | MB_ICONERROR);
+		return;
+	}
+	// 注意：Res.rc 里的资源名不要加引号。
+	// 写成 "webwin.js" 时 RC 会把引号算进资源名，FindResource 按 webwin.js 查找会失败
 
 	// SDK 据此判断"当前文档是不是应用自身的页面"
 	JsonObject config;

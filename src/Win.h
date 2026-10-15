@@ -32,6 +32,8 @@ private:
 	Win(const JsonObject& config);
 	void readConfig(const JsonObject& config);
 	std::wstring getPageOrigin();
+	// 窗口几何变化后调用：让浏览器重算鼠标命中，清掉残留的 :hover
+	void resetHoverState();
 	void createNativeWindow();
 	void applyDwmAttributes();
 	std::wstring& getClsName();

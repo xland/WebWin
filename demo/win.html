@@ -88,6 +88,7 @@
 		.evt {
 			color: #4fc1ff;
 		}
+
 	</style>
 </head>
 
@@ -206,8 +207,6 @@
 
 		window.addEventListener('load', () => {
 			log(`SDK 就绪：win 对象${typeof win === 'undefined' ? '缺失' : '已注入'}`);
-			log(`location.origin = ${location.origin}`);
-			log(`window.__webwinConfig__ = ${JSON.stringify(window.__webwinConfig__ || null)}`);
 		});
 	</script>
 </body>

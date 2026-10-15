@@ -1,3 +1,4 @@
+#include <cwchar>
 #include <map>
 #include <memory>
 #include <set>
@@ -18,6 +19,28 @@ namespace {
 	void removeWin(Win* win)
 	{
 		std::erase_if(winDic, [win](const std::unique_ptr<Win>& item) { return item.get() == win; });
+	}
+
+	// Chromium 的窗口类名：真正接收鼠标输入的是 Chrome_RenderWidgetHostHWND，
+	// 外层是 Chrome_WidgetWin_0。WebView2 没有公开 API 拿这些句柄，只能按类名找，
+	// 所以这里一律"尽力而为"——找不到就什么都不做，hover 残留只是观感问题，
+	// 不能因为它让功能出错（将来 WebView2 换了窗口层级也只是退回今天的行为）
+	bool isWebViewWindow(HWND hwnd)
+	{
+		wchar_t cls[64];
+		if (!GetClassNameW(hwnd, cls, 64)) return false;
+		return std::wcscmp(cls, L"Chrome_WidgetWin_0") == 0 || std::wcscmp(cls, L"Chrome_RenderWidgetHostHWND") == 0;
+	}
+
+	BOOL CALLBACK postMouseLeave(HWND hwnd, LPARAM found)
+	{
+		if (!isWebViewWindow(hwnd)) return TRUE;
+		// 告诉浏览器"鼠标已经离开"：它会清掉 :hover 并派发一次 mouseleave，
+		// 下次真实移动再重新命中。比 WM_MOUSEMOVE 省掉坐标换算与 DPI 处理。
+		// EnumChildWindows 本身是递归的，外层和内层都会命中
+		PostMessage(hwnd, WM_MOUSELEAVE, 0, 0);
+		*reinterpret_cast<bool*>(found) = true;
+		return TRUE;
 	}
 }
 
@@ -274,13 +297,18 @@ void Win::handleApi(const std::wstring& method, const JsonObject& params, int wi
 	if (!target) { Json::setError(result, L"window not found: " + std::to_wstring(winId)); return; }
 	auto hwnd = target->hwnd;
 
+	// 这几个方法都会改变窗口几何；close / destroy 之后窗口没了，不用（也不能）重置
+	auto geometryChanged = true;
+	// minimize / hide 要在窗口状态改变**之前**清 hover：窗口一旦隐藏，
+	// 浏览器很可能不再处理鼠标消息，那时再发 WM_MOUSELEAVE 就是白发
+	if (method == L"minimize" || method == L"hide") target->resetHoverState();
 	if (method == L"maximize") ShowWindow(hwnd, SW_MAXIMIZE);
 	else if (method == L"minimize") ShowWindow(hwnd, SW_MINIMIZE);
 	else if (method == L"restore") ShowWindow(hwnd, SW_RESTORE);
 	else if (method == L"hide") ShowWindow(hwnd, SW_HIDE);
 	else if (method == L"show") ShowWindow(hwnd, SW_SHOW);
-	else if (method == L"close") PostMessage(hwnd, WM_CLOSE, 0, 0);
-	else if (method == L"destroy") DestroyWindow(hwnd);
+	else if (method == L"close") { PostMessage(hwnd, WM_CLOSE, 0, 0); geometryChanged = false; }
+	else if (method == L"destroy") { DestroyWindow(hwnd); geometryChanged = false; }
 	else if (method == L"resize")
 	{
 		RECT rect;
@@ -294,7 +322,19 @@ void Win::handleApi(const std::wstring& method, const JsonObject& params, int wi
 		SetWindowPos(hwnd, nullptr, Json::getInt(params, L"x", 0), Json::getInt(params, L"y", 0), rect.right - rect.left, rect.bottom - rect.top, SWP_NOZORDER | SWP_NOACTIVATE);
 	}
 	else { Json::setError(result, L"unknown method: " + method); return; }
+	if (geometryChanged) target->resetHoverState();
 	Json::setOk(result);
+}
+
+void Win::resetHoverState()
+{
+	if (!hwnd || !ctrl) return;
+	ctrl->NotifyParentWindowPositionChanged(); // 官方 API：父窗口几何变了要同步
+	bool found = false;
+	EnumChildWindows(hwnd, postMouseLeave, reinterpret_cast<LPARAM>(&found));
+#ifdef _DEBUG
+	if (!found) OutputDebugStringW(L"[WebWin] 未找到 webview 窗口，:hover 未重置（Chromium 窗口层级可能已变）\n");
+#endif
 }
 
 std::wstring& Win::getClsName()
@@ -336,6 +376,9 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		payload.SetNamedValue(L"width", JsonValue::CreateNumberValue(bounds.right - bounds.left));
 		payload.SetNamedValue(L"height", JsonValue::CreateNumberValue(bounds.bottom - bounds.top));
 		Win::fireEvent(winObj->id, L"resize", payload);
+		// 覆盖原生触发的几何变化：拖边缘、双击标题栏、Win+方向键分屏。
+		// 这些不走 handleApi，鼠标又没动，:hover 会留在原来的元素上
+		winObj->resetHoverState();
 		return 0;
 	}
 	case WM_MOVE:
@@ -347,6 +390,13 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		payload.SetNamedValue(L"y", JsonValue::CreateNumberValue(rect.top));
 		Win::fireEvent(winObj->id, L"move", payload);
 		return 0;
+	}
+	case WM_SYSCOMMAND:
+	{
+		// 原生最小化（标题栏按钮 / 系统菜单 / 任务栏点击）在这里比 WM_SIZE 更早到达，
+		// 此时窗口还没隐藏，清 hover 才有效。不 return，交给 DefWindowProc 真正执行
+		if ((wParam & 0xFFF0) == SC_MINIMIZE) winObj->resetHoverState();
+		break;
 	}
 	case WM_GETMINMAXINFO:
 	{

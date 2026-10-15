@@ -4,9 +4,11 @@
 100 ICON "res/logo.ico"
 
 // 随 exe 内嵌的 web 资源：src/web 下的产物（js 注入到页面，html 作为内置默认页面）。
-// 改了 src/web 下的源码后，需先在该目录执行 npm run build:all 重新生成 dist
-"webwin.js" RCDATA "web/dist/webwin.js"
-"default.html" RCDATA "web/dist/default.html"
+// 改了 src/web 下的源码后，需先在该目录执行 npm run build:all 重新生成 dist。
+// 资源名**不要加引号**：写成 "webwin.js" 时 RC 会把引号算进资源名，
+// FindResource(nullptr, L"webwin.js", RT_RCDATA) 会找不到（ERROR_RESOURCE_NAME_NOT_FOUND）
+webwin.js RCDATA "web/dist/webwin.js"
+default.html RCDATA "web/dist/default.html"
 
 
 VS_VERSION_INFO VERSIONINFO

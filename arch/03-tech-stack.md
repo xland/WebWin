@@ -44,6 +44,43 @@
 仅在个案确实无法绕过、且必须切换到 Composition 模式时，
 才按 `00-overview.md` 的冲突裁决规则上报抉择。
 
+### 已遇到的个案：`restore` 后 `:hover` 残留
+
+**现象**：点击自定义标题栏的 restore 按钮后窗口还原，鼠标已不在按钮上，
+但按钮的 `:hover` 效果仍在。
+
+**成因**：`:hover` 由浏览器进程的命中测试维护。窗口几何通过 Win32
+（`ShowWindow` / `SetWindowPos`）改变时鼠标没动，没有鼠标消息送进 WebView，
+浏览器不会重算命中，`:hover` 就留在原元素上。
+
+**已定处置**：窗口几何变化后，由 C++ 通知浏览器"鼠标已离开" ——
+`Win::resetHoverState()` 做两件事：
+
+1. `ICoreWebView2Controller::NotifyParentWindowPositionChanged()`（官方 API）
+2. 按 Chromium 窗口类名 `Chrome_WidgetWin_0` / `Chrome_RenderWidgetHostHWND`
+   找到 WebView 的子窗口，投递 `WM_MOUSELEAVE`
+
+触发点：
+
+- `win` 域里改变几何的方法：`maximize` / `minimize` / `restore` /
+  `hide` / `show` / `resize` / `move`
+- 原生 `WM_SIZE`：拖边缘、双击标题栏、Win+方向键分屏
+- 原生 `WM_SYSCOMMAND` 的 `SC_MINIMIZE`：标题栏最小化按钮 / 系统菜单 / 任务栏点击。
+  单独加它是因为 `WM_SIZE` 到达时窗口已经隐藏
+- `close` / `destroy` 之后窗口没了，不触发
+
+顺序有讲究：**`minimize` / `hide` 要在窗口状态改变之前清** ——
+窗口一旦隐藏，浏览器很可能不再处理鼠标消息，那时再发 `WM_MOUSELEAVE` 是白发。
+其余方法在状态改变之后清。
+
+**JS 侧改样式无效（已实测排除）**：给元素设 `pointer-events: none`、
+或 `display` 切走再切回，都不能清掉 `:hover` —— 命中测试在浏览器进程，
+渲染进程的样式改不动它。这条别再试了。
+
+**风险**：窗口类名是 Chromium 内部实现，WebView2 未公开。
+所以实现成"尽力而为"：找不到就静默跳过，退化为未修复时的行为，不会更糟。
+Debug 下找不到会 `OutputDebugString` 提示。
+
 ## JSON 方案（重点决策）
 
 **使用 Windows SDK 自带的 `winrt/Windows.Data.Json.h` 完成 JSON 的序列化与反序列化，
