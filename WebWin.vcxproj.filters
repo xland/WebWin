@@ -27,9 +27,6 @@
     <ClCompile Include="src\sqlite\sqlite3.c">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="src\WinDic.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
     <ClCompile Include="src\Config.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
@@ -40,6 +37,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="src\Page.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Json.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
@@ -56,9 +56,6 @@
     <ClInclude Include="src\sqlite\sqlite3.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="src\WinDic.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="src\Config.h">
       <Filter>头文件</Filter>
     </ClInclude>
@@ -69,6 +66,9 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="src\Page.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Json.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

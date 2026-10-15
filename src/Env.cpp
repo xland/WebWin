@@ -4,6 +4,7 @@
 #include <vector>
 #include "Env.h"
 #include "App.h"
+#include "Config.h"
 
 namespace {
 	std::unique_ptr<Env> env;
@@ -95,5 +96,6 @@ HRESULT Env::onEnvReady(HRESULT result, ICoreWebView2Environment* env)
         ExitProcess(-1);
     }
     webViewEnv = env;
+    Config::init();
     return S_OK;
 }
