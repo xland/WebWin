@@ -78,16 +78,6 @@
 		</div>
 	</section>
 
-	<section>
-		<h2>验证：菜单弹出时主线程没卡死</h2>
-		<button onclick="startHeartbeat()">开始心跳</button>
-		<button onclick="stopHeartbeat()">停止心跳</button>
-		<div class="note">
-			点「开始心跳」→ 弹菜单（popup 或在页面里右键）→ <b>菜单别关</b>，看右侧日志。
-			日志还在每秒刷一行，就说明 UI 线程照常泵消息、JS 与 C++ 照常往返 —— 没被卡死。
-		</div>
-	</section>
-
 	<script>
 		let menu = null;
 
@@ -158,30 +148,9 @@
 			}
 		}
 
-		// ---------- 心跳 ----------
-		// 每秒调一次 C++：菜单弹出时它还在跑，就证明主线程没被模态循环卡死
-		let heartbeat = null;
-
-		function startHeartbeat() {
-			if (heartbeat) return; // 已在跑
-			heartbeat = setInterval(async () => {
-				const id = await os.getCpuId();
-				log(`心跳 → os.getCpuId() = ${id}`, 'ok');
-			}, 1000);
-			log('心跳已开始（每秒调一次 C++）');
-		}
-
-		function stopHeartbeat() {
-			if (!heartbeat) return; // 没在跑
-			clearInterval(heartbeat);
-			heartbeat = null;
-			log('心跳已停止');
-		}
-
 		// ---------- 切换页面时清理 ----------
 		// 外壳（index.html）切换左侧菜单时会调这个函数
 		function unsubscribeAll() {
-			stopHeartbeat();
 		}
 
 		// ---------- 启动 ----------
