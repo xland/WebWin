@@ -35,5 +35,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
         DispatchMessage(&msg);
     }
     CoUninitialize();
-    return 0;
+    // WM_QUIT 的 wParam 就是退出码：app.exit(code) 靠它把退出码带出进程
+    return static_cast<int>(msg.wParam);
 }

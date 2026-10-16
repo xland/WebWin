@@ -6,6 +6,7 @@
  *   Win            —— 窗口类型，Win.create() 创建新窗口
  */
 
+import { App } from './App';
 import { installChannel, setMenuClickDispatcher } from './Ipc';
 import { Menu } from './Menu';
 import { Os } from './Os';
@@ -19,6 +20,8 @@ declare global {
 		Win: typeof Win;
 		/** 系统级能力（全局单例，与窗口无关） */
 		os: Os;
+		/** 应用级能力（全局单例，与窗口无关） */
+		app: App;
 		/** 菜单类型 */
 		Menu: typeof Menu;
 	}
@@ -29,6 +32,7 @@ if (config) {
 	window.win = Win.fromId(config.winId ?? 0);
 	window.Win = Win;
 	window.os = new Os();
+	window.app = new App();
 	window.Menu = Menu;
 	// 菜单点击不走事件通道（它不是"某个窗口的事件"），单独接一条
 	setMenuClickDispatcher((msg) => Menu.dispatch(msg));

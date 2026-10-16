@@ -243,6 +243,7 @@ void Page::handleMessage(const wchar_t* json, ICoreWebView2Frame2* frame)
     if (type == L"win") Win::handleApi(method, params, winId, this, result, frame);
     else if (type == L"os") Os::handleApi(method, params, this, result, frame);
     else if (type == L"menu") Menu::handleApi(method, params, this, result, frame);
+    else if (type == L"app") App::handleApi(method, params, this, result, frame);
     else {
         // 未知域回一个 error：前端 invoke 会 reject，而不是静默 resolve(undefined)。
         // 之前"原生侧改了却忘了重新编译 exe"就是被静默吞掉的，补上这条能直接暴露出来

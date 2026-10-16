@@ -38,6 +38,19 @@ export interface OsLockPayload {
 	locked: boolean;
 }
 
+/** `os.getPath` 支持的目录名 */
+export type OsPathName =
+	| 'home'      // 用户主目录（%USERPROFILE%）
+	| 'appData'   // 每用户的应用数据目录（%APPDATA%）
+	| 'temp'      // 临时目录
+	| 'desktop'   // 桌面
+	| 'documents' // 我的文档
+	| 'downloads' // 下载
+	| 'music'     // 音乐
+	| 'pictures'  // 图片
+	| 'videos'    // 视频
+	| 'recent';   // 最近使用的文件（仅 Windows）
+
 /**
  * 系统级能力（os 域）。
  *
@@ -56,6 +69,9 @@ export class Os extends Ipc {
 	getOsLang(): Promise<string> { return this.call('getOsLang'); }
 	getOsColor(): Promise<OsColors> { return this.call('getOsColor'); }
 	getIpAddr(): Promise<NetAdapter[]> { return this.call('getIpAddr'); }
+
+	/** 取系统常用目录的绝对路径（不带尾部分隔符） */
+	getPath(name: OsPathName): Promise<string> { return this.call('getPath', { name }); }
 
 	/** 阻止系统休眠（直到调用 stopPreventSleep 或进程退出） */
 	preventSleep(): Promise<void> { return this.call('preventSleep'); }

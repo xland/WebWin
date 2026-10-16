@@ -8,6 +8,7 @@
 #include <cstring>
 #include <intrin.h>
 #include <vector>
+#include <shlobj.h> // SHGetKnownFolderPath / FOLDERID_*
 
 // JsonArray::Append 是 IVector 的方法，要显式带上集合头文件（Json.cpp 同理）
 #include <winrt/Windows.Foundation.Collections.h>
@@ -60,6 +61,21 @@ namespace {
 		return DefWindowProc(hwnd, msg, wParam, lParam);
 	}
 
+	/** getPath 的目录名 → KnownFolder 的 GUID；不认识的名字返回 nullptr */
+	const GUID* folderIdOf(const std::wstring& name)
+	{
+		if (name == L"home") return &FOLDERID_Profile;
+		if (name == L"appData") return &FOLDERID_RoamingAppData;
+		if (name == L"desktop") return &FOLDERID_Desktop;
+		if (name == L"documents") return &FOLDERID_Documents;
+		if (name == L"downloads") return &FOLDERID_Downloads;
+		if (name == L"music") return &FOLDERID_Music;
+		if (name == L"pictures") return &FOLDERID_Pictures;
+		if (name == L"videos") return &FOLDERID_Videos;
+		if (name == L"recent") return &FOLDERID_Recent;
+		return nullptr;
+	}
+
 	bool ensureSessionWindow()
 	{
 		if (sessionWindow) return true;
@@ -88,6 +104,7 @@ void Os::handleApi(const std::wstring& method, const JsonObject& params, Page* p
 	else if (method == L"getOsLang") getOsLang(result);
 	else if (method == L"getOsColor") getOsColor(result);
 	else if (method == L"getIpAddr") getIpAddr(result);
+	else if (method == L"getPath") getPath(params, result);
 	else if (method == L"preventSleep") preventSleep(result);
 	else if (method == L"stopPreventSleep") stopPreventSleep(result);
 	else Json::setError(result, L"unknown method: " + method);
@@ -241,6 +258,37 @@ void Os::getIpAddr(JsonObject& result)
 	WSACleanup();
 	Json::setOk(result);
 	result.SetNamedValue(L"data", list);
+}
+
+void Os::getPath(const JsonObject& params, JsonObject& result)
+{
+	auto name = Json::getString(params, L"name", L"");
+	if (name.empty()) { Json::setError(result, L"missing name"); return; }
+
+	std::wstring dir;
+	// temp 不在 KnownFolder 里，走 GetTempPath。它给的路径带尾部的反斜杠
+	if (name == L"temp")
+	{
+		wchar_t buf[MAX_PATH + 1];
+		auto len = GetTempPathW(MAX_PATH + 1, buf);
+		if (len == 0 || len > MAX_PATH + 1) { Json::setError(result, L"取临时目录失败"); return; }
+		dir.assign(buf, len);
+		if (dir.size() > 3 && dir.back() == L'\\') dir.pop_back(); // 与其它目录一致：不带尾部分隔符
+	}
+	else
+	{
+		auto folder = folderIdOf(name);
+		if (!folder) { Json::setError(result, L"unknown name: " + name); return; }
+
+		PWSTR path = nullptr;
+		auto hr = SHGetKnownFolderPath(*folder, 0, nullptr, &path);
+		if (FAILED(hr) || !path) { Json::setError(result, L"取目录失败: " + name); return; }
+		dir = path;
+		CoTaskMemFree(path);
+	}
+
+	Json::setOk(result);
+	result.SetNamedValue(L"data", JsonValue::CreateStringValue(dir));
 }
 
 void Os::preventSleep(JsonObject& result)

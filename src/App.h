@@ -6,6 +6,11 @@
 #include <Windows.h>
 #include <wrl.h>
 #include <WebView2.h>
+#include <winrt/Windows.Data.Json.h>
+
+#include "Page.h"
+
+using namespace winrt::Windows::Data::Json;
 
 class App
 {
@@ -13,6 +18,8 @@ public:
 	~App();
 	static void init();
 	static App* get();
+	// 处理 type=app 域的消息：按 method 分发到本域的具体动作
+	static void handleApi(const std::wstring& method, const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame = nullptr);
 	static std::filesystem::path getDataPath();
 	// 启动命令行 `--path=...` 指明的 package.json 所在目录，
 	// 必须在 init() 之前调用；不调用则走默认（exe 同目录）

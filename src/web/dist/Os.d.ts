@@ -33,6 +33,8 @@ export interface NetAdapter {
 export interface OsLockPayload {
     locked: boolean;
 }
+/** `os.getPath` 支持的目录名 */
+export type OsPathName = 'home' | 'appData' | 'temp' | 'desktop' | 'documents' | 'downloads' | 'music' | 'pictures' | 'videos' | 'recent';
 /**
  * 系统级能力（os 域）。
  *
@@ -49,6 +51,8 @@ export declare class Os extends Ipc {
     getOsLang(): Promise<string>;
     getOsColor(): Promise<OsColors>;
     getIpAddr(): Promise<NetAdapter[]>;
+    /** 取系统常用目录的绝对路径（不带尾部分隔符） */
+    getPath(name: OsPathName): Promise<string>;
     /** 阻止系统休眠（直到调用 stopPreventSleep 或进程退出） */
     preventSleep(): Promise<void>;
     stopPreventSleep(): Promise<void>;

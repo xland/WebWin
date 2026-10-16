@@ -52,6 +52,34 @@ App* App::get()
 	return app.get();
 }
 
+void App::handleApi(const std::wstring& method, const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
+{
+	// 立即退出：不关窗口、不弹确认、也不发退出前的事件（框架目前没有这类事件）。
+	// 只投一条 WM_QUIT，消息循环退出后由 main 把它作为进程退出码返回（见 main.cpp）
+	if (method == L"exit")
+	{
+		PostQuitMessage(Json::getInt(params, L"exitCode", 0));
+		Json::setOk(result);
+		return;
+	}
+
+	std::wstring data;
+	if (method == L"getAppPath") data = getPackageBaseDir().wstring(); // package.json 所在目录
+	else if (method == L"getExePath") data = Util::getExeDir().wstring();
+	else if (method == L"getDataPath") data = getDataPath().wstring(); // %APPDATA%\WebWin\{应用id}
+	else if (method == L"getVersion")
+	{
+		auto ver = get()->getVersion();
+		data = std::to_wstring(ver[0]) + L"." + std::to_wstring(ver[1]) + L"." + std::to_wstring(ver[2]);
+	}
+	else if (method == L"getName") data = get()->getName();
+	else if (method == L"getID") data = get()->getId();
+	else { Json::setError(result, L"unknown method: " + method); return; }
+
+	Json::setOk(result);
+	result.SetNamedValue(L"data", JsonValue::CreateStringValue(data));
+}
+
 void App::setPackagePath(std::filesystem::path path)
 {
 	packagePathOverride = std::move(path);

@@ -98,6 +98,24 @@
 	</section>
 
 	<section>
+		<h2>常用目录（os.getPath）</h2>
+		<button onclick="getPath('home')">home</button>
+		<button onclick="getPath('appData')">appData</button>
+		<button onclick="getPath('temp')">temp</button>
+		<button onclick="getPath('desktop')">desktop</button>
+		<button onclick="getPath('documents')">documents</button>
+		<button onclick="getPath('downloads')">downloads</button>
+		<button onclick="getPath('music')">music</button>
+		<button onclick="getPath('pictures')">pictures</button>
+		<button onclick="getPath('videos')">videos</button>
+		<button onclick="getPath('recent')">recent</button>
+		<div class="note">
+			返回该目录的绝对路径。appData 是 <b>漫游</b>的那份（%APPDATA%），不是 Local。
+			目录被用户改到别处时，返回的是改后的位置。
+		</div>
+	</section>
+
+	<section>
 		<h2>阻止休眠</h2>
 		<button onclick="preventSleep()">os.preventSleep()</button>
 		<button onclick="stopPreventSleep()">os.stopPreventSleep()</button>
@@ -189,6 +207,15 @@
 				log('os.stopPreventSleep() → ok', 'ok');
 			} catch (e) {
 				log(`os.stopPreventSleep() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// ---------- 常用目录 ----------
+		async function getPath(name) {
+			try {
+				log(`os.getPath('${name}') → ${await os.getPath(name)}`, 'ok');
+			} catch (e) {
+				log(`os.getPath('${name}') → 失败：${e && e.message ? e.message : e}`, 'err');
 			}
 		}
 

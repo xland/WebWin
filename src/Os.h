@@ -30,6 +30,8 @@ private:
 	static void getOsLang(JsonObject& result);
 	static void getOsColor(JsonObject& result);
 	static void getIpAddr(JsonObject& result);
+	// 取系统常用目录（home / appData / temp / desktop / ...）的绝对路径
+	static void getPath(const JsonObject& params, JsonObject& result);
 	static void preventSleep(JsonObject& result);
 	static void stopPreventSleep(JsonObject& result);
 	// 订阅 / 取消订阅事件。目前只支持 osLock（锁屏 / 解锁）

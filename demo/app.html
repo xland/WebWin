@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin 应用 API 演示</title>
+	<style>
+		body {
+			font-family: system-ui, "Microsoft YaHei", sans-serif;
+			margin: 0;
+			padding: 16px;
+			color: #222;
+		}
+
+		section {
+			background: #fff;
+			border: 1px solid #e3e3e6;
+			border-radius: 8px;
+			padding: 16px;
+			margin-bottom: 16px;
+		}
+
+		h2 {
+			font-size: 14px;
+			margin: 0 0 12px;
+			color: #444;
+		}
+
+		.note {
+			font-size: 12px;
+			color: #888;
+			margin: 8px 0 0;
+		}
+
+		button {
+			font: inherit;
+			font-size: 13px;
+			padding: 6px 12px;
+			margin: 0 8px 8px 0;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+			background: #fff;
+			cursor: pointer;
+		}
+
+		button:hover {
+			background: #f0f0f2;
+		}
+
+		.danger {
+			color: #c0392b;
+			border-color: #e0b4b0;
+		}
+	</style>
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section>
+		<h2>应用信息（来自 package.json 的 webwin 段）</h2>
+		<button onclick="appName()">app.getName()</button>
+		<button onclick="appID()">app.getID()</button>
+		<button onclick="appVersion()">app.getVersion()</button>
+		<div class="note">
+			三项都取自 <code>package.json</code> 的 <code>webwin</code> 段；没配就是默认值
+			（id 回落 <code>webwin</code>，version 回落 <code>1.1.1</code>）。
+		</div>
+	</section>
+
+	<section>
+		<h2>路径</h2>
+		<button onclick="appPath()">app.getAppPath()</button>
+		<button onclick="exePath()">app.getExePath()</button>
+		<button onclick="dataPath()">app.getDataPath()</button>
+		<div class="note">
+			getAppPath 是 <b>package.json 所在目录</b>（命令行 <code>--path=...</code> 指定的那个，不给就是 exe 同目录）；
+			getExePath 是 <b>exe 所在目录</b>；getDataPath 是应用数据目录
+			<code>%APPDATA%\WebWin\{应用 id}</code>，应用该把数据写在这里。
+		</div>
+	</section>
+
+	<section>
+		<h2>退出</h2>
+		<button class="danger" onclick="appExit(0)">app.exit()</button>
+		<button class="danger" onclick="appExit(3)">app.exit(3)</button>
+		<div class="note">
+			立即退出：所有窗口直接关掉，不询问、不发退出前的事件。
+			进程马上就没了，所以<b>这个调用没有返回值</b> —— Promise 不会 resolve，日志也只能在调用之前写。
+			退出码会作为进程退出码带出去（<code>echo %errorlevel%</code> 能看到）。
+		</div>
+	</section>
+
+	<script>
+		// ---------- 应用信息 ----------
+		async function appName() {
+			try {
+				log(`app.getName() → ${await app.getName()}`, 'ok');
+			} catch (e) {
+				log(`app.getName() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function appID() {
+			try {
+				log(`app.getID() → ${await app.getID()}`, 'ok');
+			} catch (e) {
+				log(`app.getID() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function appVersion() {
+			try {
+				log(`app.getVersion() → ${await app.getVersion()}`, 'ok');
+			} catch (e) {
+				log(`app.getVersion() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// ---------- 路径 ----------
+		async function appPath() {
+			try {
+				log(`app.getAppPath() → ${await app.getAppPath()}`, 'ok');
+			} catch (e) {
+				log(`app.getAppPath() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function exePath() {
+			try {
+				log(`app.getExePath() → ${await app.getExePath()}`, 'ok');
+			} catch (e) {
+				log(`app.getExePath() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function dataPath() {
+			try {
+				log(`app.getDataPath() → ${await app.getDataPath()}`, 'ok');
+			} catch (e) {
+				log(`app.getDataPath() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// ---------- 退出 ----------
+		// 进程立刻结束，Promise 不会 resolve：日志必须在调用之前写
+		function appExit(code) {
+			log(`app.exit(${code}) → 调用，进程将立即退出（退出码 ${code}）`);
+			app.exit(code);
+		}
+
+		// ---------- 启动 ----------
+		window.addEventListener('load', () => {
+			log(`SDK 就绪：app 对象${typeof app === 'undefined' ? '缺失' : '已注入'}`);
+		});
+	</script>
+</body>
+
+</html>

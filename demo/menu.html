@@ -148,11 +148,6 @@
 			}
 		}
 
-		// ---------- 切换页面时清理 ----------
-		// 外壳（index.html）切换左侧菜单时会调这个函数
-		function unsubscribeAll() {
-		}
-
 		// ---------- 启动 ----------
 		window.addEventListener('load', () => {
 			log(`SDK 就绪：Menu 对象${typeof Menu === 'undefined' ? '缺失' : '已注入'}`);
