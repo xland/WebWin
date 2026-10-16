@@ -102,6 +102,7 @@
     <ClCompile Include="src\Os.cpp" />
     <ClCompile Include="src\Menu.cpp" />
     <ClCompile Include="src\Display.cpp" />
+    <ClCompile Include="src\Dialog.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -117,6 +118,7 @@
     <ClInclude Include="src\Os.h" />
     <ClInclude Include="src\Menu.h" />
     <ClInclude Include="src\Display.h" />
+    <ClInclude Include="src\Dialog.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\Res.rc" />

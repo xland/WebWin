@@ -20,15 +20,11 @@ using namespace winrt::Windows::Data::Json;
 class Menu
 {
 public:
-	// 需要弹菜单时投给窗口的消息：窗口过程收到后在正常的消息流里调 popup。
-	// wParam = 菜单 id，lParam = 坐标（LOWORD x / HIWORD y，屏幕坐标）
-	static constexpr UINT MSG_POPUP = WM_APP + 1;
-
 	// 处理 type=menu 域的消息：按 method 分发到本域的具体动作
 	static void handleApi(const std::wstring& method, const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame = nullptr);
 	/**
-	 * 弹出菜单。**只**在窗口过程里调用（WM_APP + 1 那条消息），
-	 * 不在 WebView2 事件回调里调用 —— 回调里开模态循环等于"回调套回调"，容易重入
+	 * 弹出菜单。只在 App::runLater 排下的任务里调用（不在 WebView2 事件回调里）——
+	 * TrackPopupMenu 是模态循环，在回调里跑等于"回调套回调"，Runtime 会判为重入
 	 */
 	static void popup(int menuId, HWND hwnd, int x, int y);
 	/** 是否已有菜单在弹：弹窗期间拒绝新的 popup，不排队也不嵌套 */

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin 系统对话框 API 演示</title>
+	<style>
+		body {
+			font-family: system-ui, "Microsoft YaHei", sans-serif;
+			margin: 0;
+			padding: 16px;
+			color: #222;
+		}
+
+		section {
+			background: #fff;
+			border: 1px solid #e3e3e6;
+			border-radius: 8px;
+			padding: 16px;
+			margin-bottom: 16px;
+		}
+
+		h2 {
+			font-size: 14px;
+			margin: 0 0 12px;
+			color: #444;
+		}
+
+		.note {
+			font-size: 12px;
+			color: #888;
+			margin: 8px 0 0;
+		}
+
+		button {
+			font: inherit;
+			font-size: 13px;
+			padding: 6px 12px;
+			margin: 0 8px 8px 0;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+			background: #fff;
+			cursor: pointer;
+		}
+
+		button:hover {
+			background: #f0f0f2;
+		}
+
+		code {
+			background: #f4f4f5;
+			border-radius: 3px;
+			padding: 1px 4px;
+		}
+	</style>
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section>
+		<h2>选择文件（dialog.openPath）</h2>
+		<button onclick="openFile()">单选文件</button>
+		<button onclick="openMulti()">多选文件（带过滤器）</button>
+		<div class="note">
+			返回值是 <code>{ cancel, data }</code>：<code>data</code> 一律是<b>路径数组</b>，
+			单选时也只装一个元素。用户点取消时 <code>cancel</code> 为 true ——
+			取消是正常结果，不会 reject。
+		</div>
+	</section>
+
+	<section>
+		<h2>选择文件夹（dialog.openPath，type: 'dir'）</h2>
+		<button onclick="openDir()">选择文件夹</button>
+		<button onclick="openDirs()">多选文件夹</button>
+		<div class="note">
+			<code>type: 'dir'</code> 时只选文件夹，此时 <code>filter</code> 无效（文件夹对话框不接受文件类型）。
+		</div>
+	</section>
+
+	<section>
+		<h2>保存文件（dialog.savePath）</h2>
+		<button onclick="saveFile()">选择保存位置</button>
+		<div class="note">
+			返回值同样是 <code>{ cancel, data }</code>，但这里的 <code>data</code> 是<b>单个路径字符串</b>，
+			取消时是空串。<code>defaultPath</code> 给完整文件路径时会拆出目录和默认文件名；
+			给了 <code>filter</code> 的话，第一个过滤器的后缀会自动补上。
+		</div>
+	</section>
+
+	<section>
+		<h2>消息框（dialog.msgBox）</h2>
+		<button onclick="msgInfo()">提示（info / ok）</button>
+		<button onclick="msgErr()">错误（err / ok）</button>
+		<button onclick="msgYesNoCancel()">三选一（question / yesNoCancel）</button>
+		<div class="note">
+			直接返回用户点了哪个按钮：<code>'ok' | 'cancel' | 'yes' | 'no' | 'abort' | 'retry' | 'ignore'</code>。
+			icon 可选 <code>info / warn / err / question / stop</code>，btn 可选
+			<code>ok / okCancel / yesNo / yesNoCancel / retryCancel / abortRetryIgnore</code>。
+			对话框会<b>模态挂在当前窗口上</b>（属主窗口被禁用，层级正确）。
+		</div>
+	</section>
+
+	<section>
+		<h2>在文件夹中显示（dialog.itemInFolder）</h2>
+		<button onclick="showInFolder()">打开资源管理器并选中 cmd.exe</button>
+		<div class="note">
+			相当于资源管理器里"打开文件所在的位置"：会打开一个新窗口并选中该文件，没有返回值。
+		</div>
+	</section>
+
+	<script>
+		// 每个按钮对应一个函数：调用哪句 API、成功失败各打什么，一眼看全。
+		// C++ 返回的错误是字符串而不是 Error 对象，所以取 message 前要判断一下
+		function fail(what, e) {
+			log(`${what} → 失败：${e && e.message ? e.message : e}`, 'err');
+		}
+
+		async function openFile() {
+			try {
+				const r = await dialog.openPath({
+					title: '请选择一个文件',
+					okBtnText: '就是它',
+					defaultPath: 'C:\\Windows',
+				});
+				// 取消不是错误：先看 cancel 再取 data
+				log(r.cancel ? '已取消' : `选中：${r.data[0]}`, r.cancel ? 'evt' : 'ok');
+			} catch (e) { fail('openPath', e); }
+		}
+
+		async function openMulti() {
+			try {
+				const r = await dialog.openPath({
+					title: '选几张图片',
+					okBtnText: '选择图片',
+					multiSelection: true,
+					filter: [['图片', '*.png;*.jpg;*.jpeg'], ['所有文件', '*.*']],
+				});
+				log(r.cancel ? '已取消' : `选中 ${r.data.length} 个：\n  ${r.data.join('\n  ')}`, r.cancel ? 'evt' : 'ok');
+			} catch (e) { fail('openPath(multi)', e); }
+		}
+
+		async function openDir() {
+			try {
+				const r = await dialog.openPath({
+					title: '选择一个文件夹',
+					type: 'dir',
+					defaultPath: 'C:\\',
+				});
+				log(r.cancel ? '已取消' : `选中目录：${r.data[0]}`, r.cancel ? 'evt' : 'ok');
+			} catch (e) { fail('openPath(dir)', e); }
+		}
+
+		async function openDirs() {
+			try {
+				const r = await dialog.openPath({
+					title: '选择多个文件夹',
+					type: 'dir',
+					multiSelection: true,
+				});
+				log(r.cancel ? '已取消' : `选中 ${r.data.length} 个目录：\n  ${r.data.join('\n  ')}`, r.cancel ? 'evt' : 'ok');
+			} catch (e) { fail('openPath(dirs)', e); }
+		}
+
+		async function saveFile() {
+			try {
+				const r = await dialog.savePath({
+					title: '另存为...',
+					okBtnText: '保存',
+					defaultPath: 'C:\\Users\\新建文件.png',
+					filter: [['图片', '*.png'], ['文本', '*.txt']],
+				});
+				log(r.cancel ? '已取消' : `保存到：${r.data}`, r.cancel ? 'evt' : 'ok');
+			} catch (e) { fail('savePath', e); }
+		}
+
+		async function msgInfo() {
+			try {
+				const r = await dialog.msgBox({ title: '系统提示', msg: '世界是我们的！' });
+				log(`msgBox → ${r}`, 'ok');
+			} catch (e) { fail('msgBox', e); }
+		}
+
+		async function msgErr() {
+			try {
+				const r = await dialog.msgBox({ title: '出错了', msg: '保存失败', icon: 'err' });
+				log(`msgBox(err) → ${r}`, 'ok');
+			} catch (e) { fail('msgBox(err)', e); }
+		}
+
+		async function msgYesNoCancel() {
+			try {
+				const r = await dialog.msgBox({
+					title: '确认',
+					msg: '要覆盖已有文件吗？',
+					icon: 'question',
+					btn: 'yesNoCancel',
+				});
+				log(`msgBox(yesNoCancel) → ${r}`, 'ok');
+			} catch (e) { fail('msgBox(yesNoCancel)', e); }
+		}
+
+		async function showInFolder() {
+			try {
+				await dialog.itemInFolder('C:\\Windows\\System32\\cmd.exe');
+				log('itemInFolder → 已打开资源管理器', 'ok');
+			} catch (e) { fail('itemInFolder', e); }
+		}
+
+		// ---------- 切换页面时清理 ----------
+		// 外壳（index.html）切换左侧菜单时会调这个函数。本页没有事件订阅，
+		// 但外壳是用 ?. 调的，留着空实现以免那边报"不是函数"
+		function unsubscribeAll() { }
+	</script>
+</body>
+
+</html>

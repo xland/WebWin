@@ -16,5 +16,6 @@ QuickWin
 | [窗口 API](doc/win.md)      | `win` / `Win`：窗口控制、窗口事件 |
 | [系统 API](doc/os.md)       | `os`：系统信息、锁屏、网卡        |
 | [显示设备 API](doc/display.md) | `display`：显示器、截屏、取色  |
+| [系统对话框 API](doc/dialog.md) | `dialog`：选文件、存文件、消息框 |
 | [右键菜单 API](doc/menu.md) | `Menu`：右键菜单与菜单项          |
 | [应用 API](doc/app.md)      | `app`：应用信息、路径、退出       |

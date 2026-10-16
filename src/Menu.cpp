@@ -4,6 +4,7 @@
 #include <memory>
 #include <winrt/Windows.Foundation.Collections.h>
 
+#include "App.h"
 #include "Json.h"
 
 namespace {
@@ -60,9 +61,13 @@ void Menu::handleApi(const std::wstring& method, const JsonObject& params, Page*
 
 		auto hwnd = page->getHwnd();
 		if (!hwnd) { Json::setError(result, L"页面所在的窗口已经没了"); return; }
-		// 不在 WebView2 的回调里开模态循环：只投一条消息，弹的动作留给窗口过程
-		PostMessage(hwnd, MSG_POPUP, id,
-			MAKELPARAM(static_cast<WORD>(static_cast<short>(pt.x)), static_cast<WORD>(static_cast<short>(pt.y))));
+		// 不在 WebView2 的回调里开模态循环（那里的嵌套循环 = 回调套回调，会被判重入）：
+		// 排到下一次消息循环再弹
+		if (!App::runLater([id, hwnd, pt] { Menu::popup(id, hwnd, pt.x, pt.y); }))
+		{
+			Json::setError(result, L"无法显示菜单：调度失败");
+			return;
+		}
 		Json::setOk(result);
 		return;
 	}
@@ -192,8 +197,7 @@ void Menu::onClick(Item& item)
 	{
 		msg.SetNamedValue(L"checked", JsonValue::CreateBooleanValue(checked));
 	}
-	auto json = msg.Stringify();
-	page->postJson(json.c_str(), frame.Get());
+	page->send(msg, frame.Get());
 }
 
 void Menu::removeByPage(Page* target)

@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include "App.h"
+#include "Dialog.h"
 #include "Display.h"
 #include "Env.h"
 #include "Menu.h"
@@ -263,6 +264,9 @@ void Page::handleMessage(const wchar_t* json, ICoreWebView2Frame2* frame)
     else if (type == L"menu") Menu::handleApi(method, params, this, result, frame);
     else if (type == L"app") App::handleApi(method, params, this, result, frame);
     else if (type == L"display") sent = Display::handleApi(method, params, this, result, frame);
+    // 弹框不能当场执行（回调里开模态循环会被 Runtime 判重入），
+    // 所以 handleApi 返回"是否已自行发回响应"，由它决定要不要再发一次信封
+    else if (type == L"dialog") sent = Dialog::handleApi(method, params, this, result, frame);
     else {
         // 未知域回一个 error：前端 invoke 会 reject，而不是静默 resolve(undefined)。
         // 之前"原生侧改了却忘了重新编译 exe"就是被静默吞掉的，补上这条能直接暴露出来
@@ -283,6 +287,11 @@ void Page::postJson(const wchar_t* json, ICoreWebView2Frame2* frame)
     else webview->PostWebMessageAsJson(json);
 }
 
+void Page::send(const JsonObject& payload, ICoreWebView2Frame2* frame)
+{
+    postJson(payload.Stringify().c_str(), frame);
+}
+
 HRESULT Page::onCloseWindow(ICoreWebView2* sender, IUnknown* args)
 {
     PostMessage(win->hwnd, WM_CLOSE, 0, 0);
@@ -301,10 +310,9 @@ HRESULT Page::onContextMenuRequested(ICoreWebView2* sender, ICoreWebView2Context
 
     POINT pt;
     GetCursorPos(&pt); // 屏幕坐标：菜单就弹在鼠标处
-    // 不在 WebView2 的事件回调里弹菜单（那里开模态循环等于"回调套回调"）：
-    // 只投一条消息，真正的弹出由窗口过程完成（见 Menu::popup）
-    PostMessage(win->hwnd, Menu::MSG_POPUP, win->menuId,
-        MAKELPARAM(static_cast<WORD>(static_cast<short>(pt.x)), static_cast<WORD>(static_cast<short>(pt.y))));
+    // 不在 WebView2 的事件回调里开模态循环（那里的嵌套循环 = 回调套回调）：
+    // 排到下一次消息循环再弹（见 Menu::popup）
+    App::runLater([menuId = win->menuId, hwnd = win->hwnd, pt] { Menu::popup(menuId, hwnd, pt.x, pt.y); });
     return S_OK;
 }
 
@@ -325,7 +333,7 @@ HRESULT Page::onRequest(ICoreWebView2* webview, ICoreWebView2WebResourceRequeste
     CoTaskMemFree(rawUri);
     size_t queryPos = url.find(L'?');
     size_t end = (queryPos != std::wstring::npos) ? queryPos : url.length();
-    std::wstring resName = url.substr(22, end - 22); //22是“https://app.localhost/”的长度
+    std::wstring resName = url.substr(22, end - 22); //22是"https://app.localhost/"的长度
     // 光有域名（https://app.localhost/）或以 / 结尾的，都当要首页
     if (resName.empty() || resName.back() == L'/') resName += L"index.html";
     HRSRC hRes = FindResource(NULL, resName.data(), RT_RCDATA);

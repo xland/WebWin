@@ -13,10 +13,17 @@ class Win;
 class Page
 {
 	friend class Win; // Win::fireEvent 需要把事件推给订阅页面
-	friend class Menu; // Menu 要把菜单项点击推给创建它的文档
 public:
 	Page(Win* win, const ComPtr<ICoreWebView2>& webview);
 	void emit(const JsonObject& eventData);
+	/**
+	 * 下行发消息：有 frame 就只发给那个 iframe，否则发给顶级文档。
+	 *
+	 * 能力域用它把事件 / 异步响应推回页面：menu 项被点击后回调、
+	 * dialog 弹完之后回包，都走这里。放在公开区而不是给每个域加 friend ——
+	 * 以后新域要下行发消息时，不必再回来改本文件的声明
+	 */
+	void send(const JsonObject& payload, ICoreWebView2Frame2* frame = nullptr);
 	/**
 	 * 用共享内存把大块数据发回某个文档（见 arch/07-web.md 第八节）。
 	 *

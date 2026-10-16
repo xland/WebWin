@@ -6,10 +6,11 @@
 #include <dwmapi.h>
 
 #include "Win.h"
+#include "App.h"
+#include "Dialog.h"
 #include "Env.h"
 #include "Json.h"
 #include "Menu.h"
-#include "App.h"
 
 namespace {
     std::vector<std::unique_ptr<Win>> winDic;
@@ -456,15 +457,6 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		if (wParam == TRUE && !winObj->frame) return WVR_REDRAW;
 		break;
 	}
-	case Menu::MSG_POPUP:
-	{
-		// 菜单在这里弹：窗口过程本身就是消息流，不是 WebView2 的事件回调，
-		// 在这里开模态循环不会有"回调里套回调"的重入问题。
-		// 发起方（右键回调 / popup 请求）都只是投了本消息，没有直接调 Menu::popup
-		Menu::popup(static_cast<int>(wParam), hwnd,
-			static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)));
-		return 0;
-	}
 	case WM_DESTROY:
 	{
 		// 窗口没了：它作为被订阅对象的条目、以及它自己订阅的条目，全部清理，
@@ -478,6 +470,7 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			else ++it;
 		}
 		Menu::removeByPage(winObj->page.get()); // 本页建的菜单一起销毁：点击已无处可推
+		Dialog::removeByPage(winObj->page.get()); // 本页排着的对话框请求：窗口没了就弹不了
 		removeWin(winObj);
 		if (App::get()->getQuitWhenNoWindow() && winDic.empty()) PostQuitMessage(0);
 		return 0;

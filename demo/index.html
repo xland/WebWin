@@ -17,7 +17,7 @@
       body {
         font-family: system-ui, "Microsoft YaHei", sans-serif;
         margin: 0;
-        padding: 20px;
+        padding: 10px;
         box-sizing: border-box; /* padding 吃进 100% 里，不再溢出 */
         color: #222;
         background: #f7f7f8;
@@ -79,7 +79,7 @@
       #content {
         display: block; /* iframe 默认 inline，行内基线会多出几像素撑高父容器 */
         width: 100%;
-        height: calc(100vh - 40px); /* 40px = body 上下 padding */
+        height: calc(100vh - 20px);
         border: 1px solid #e3e3e6;
         border-radius: 8px;
         background: #fff;
@@ -91,8 +91,7 @@
         width: 420px;
         flex: 0 0 auto;
         position: sticky;
-        top: 20px;
-        height: calc(100vh - 40px);
+        height: calc(100vh - 20px);
         display: flex;
         flex-direction: column;
       }
@@ -212,8 +211,8 @@
       <button onclick="openPage('menu.html', this)">菜单</button>
       <button onclick="openPage('iframe.html', this)">子页面</button>
       <button onclick="openPage('app.html', this)">应用</button>
+      <button onclick="openPage('dialog.html', this)">对话框</button>
       <button disabled>托盘（未实现）</button>
-      <button disabled>对话框（未实现）</button>
       <div class="note" style="margin: 10px 0 0">
         灰掉的能力还没实现，做出来后在这里加一项即可。
       </div>

@@ -16,12 +16,13 @@ using namespace winrt::Windows::Data::Json;
 
 namespace {
 	std::unique_ptr<App> app;
+	// DispatcherQueueController：给当前 UI 线程装一个任务队列（见 App::runLater）。
+	// 它必须活过所有排进来的任务，所以放在文件作用域，不做成某个函数里的静态
+	winrt::Windows::System::DispatcherQueueController dispatcherCtrl{ nullptr };
 	// 命令行 --path=... 指明的 package.json 所在目录；空则走默认（exe 同目录）
 	std::filesystem::path packagePathOverride;
 	// 实际生效的基准目录：命令行为主，否则 exe 同目录
 	std::filesystem::path packageBaseDir;
-	// package.json 里读到的 window 配置，供建窗口时用
-	JsonObject windowConfig{ nullptr };
 }
 
 App::App()
@@ -39,10 +40,13 @@ void App::init()
         initDispatcherQueueCtrl();
         App* rawPtr = new App();
         app = std::unique_ptr<App>(rawPtr);
-        // 顺序有依赖：先读配置拿到应用 id → 数据目录按 id 建 → 再按配置建窗口
-        app->readPackageJson();
+        // 真正的依赖只有一条：读配置拿到应用 id → 数据目录按 id 建 →
+        // Env::init 用那个目录创建 WebView2 环境（见 Env.cpp）。
+        // 建窗口不碰数据目录（createCtrl 环境未就绪时会内部返回，等 Env::onEnvReady 补），
+        // 把它排在 Env::init 之前，是为了让窗口尽早出现，不必等 WebView2 就绪
+        auto windowConfig = app->readPackageJson();
         app->initDataPath();
-        app->createWindow(); // 尽早建窗口，不必等 WebView2 环境就绪
+        Win::Create(windowConfig); // 空对象也行：Win::readConfig 每个字段都会回落到默认值
         Env::init();
 	}
 }
@@ -93,13 +97,20 @@ std::filesystem::path App::getPackageBaseDir()
 void App::initDispatcherQueueCtrl()
 {
     DispatcherQueueOptions options{sizeof(DispatcherQueueOptions), DQTYPE_THREAD_CURRENT, DQTAT_COM_NONE};
-    static winrt::Windows::System::DispatcherQueueController controller{ nullptr };
-    auto hr = CreateDispatcherQueueController(options,reinterpret_cast<ABI::Windows::System::IDispatcherQueueController**>(winrt::put_abi(controller)));
+    auto hr = CreateDispatcherQueueController(options,reinterpret_cast<ABI::Windows::System::IDispatcherQueueController**>(winrt::put_abi(dispatcherCtrl)));
     if (FAILED(hr))
     {
         MessageBox(NULL, L"无法创建DispatcherQueueController", L"系统提示", MB_OK);
         ExitProcess(-1);
     }
+}
+
+bool App::runLater(std::function<void()> fn)
+{
+    if (!dispatcherCtrl) return false; // 还没建 / 已关掉：调用方得自己回个错
+    // 只是"排进去"，不是当场调。任务由本线程的消息泵分派，执行时
+    // WebView2 的回调栈已经退干净了 —— 所以 fn 里弹框、调 WebView2 都安全
+    return dispatcherCtrl.DispatcherQueue().TryEnqueue([fn = std::move(fn)] { fn(); });
 }
 
 void App::initDataPath()
@@ -153,8 +164,9 @@ bool App::getQuitWhenNoWindow() const
 	return quitWhenNoWindow;
 }
 
-void App::readPackageJson()
+JsonObject App::readPackageJson()
 {
+	JsonObject windowConfig{ nullptr }; // package.json 没配 window 段落时就保持空
 	// 命令行 --path=... 指明了 package.json 所在目录时，优先使用；
 	// 否则按原约定走 exe 同目录。
 	// 记录下"实际生效"的基准目录，供入口 HTML / webview 资源解析时复用
@@ -172,8 +184,9 @@ void App::readPackageJson()
 		id = Json::getString(webwin, L"id", id);
 		name = Json::getString(webwin, L"name", name);
 		quitWhenNoWindow = Json::getBool(webwin, L"quitWhenNoWindow", quitWhenNoWindow);
-		auto windowObj = Json::getObject(webwin, L"window");
-		if (windowObj) windowConfig = windowObj;
+		// 整个 window 段落交给 Win 自己解释（字段逐个回落见 Win::readConfig）；
+		// 没配这个段落时是空对象，readConfig 读不到任何键，于是全走成员默认值
+		windowConfig = Json::getObject(webwin, L"window");
 
 		auto vers = Json::getIntArray(webwin, L"version");
 		if (vers.size() >= 3) version = { vers[0], vers[1], vers[2] };
@@ -184,9 +197,5 @@ void App::readPackageJson()
 	// 同一份 exe 分发给不同应用时，靠它让每个应用有独立的任务栏身份。
 	// 必须在窗口呈现之前调用
 	SetCurrentProcessExplicitAppUserModelID(id.c_str());
-}
-
-void App::createWindow()
-{
-	Win::Create(windowConfig ? windowConfig : JsonObject{});
+	return windowConfig;
 }
