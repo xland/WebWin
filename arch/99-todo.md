@@ -20,6 +20,7 @@
 | T010 | **SDK 业务 api 逐项设计**：`01-api.md` 的 14 项基础能力在 TS SDK 中的命名与参数。**窗口已实现**（`win.maximize` / `minimize` / `restore` / `hide` / `show` / `resize` / `move` / `close` / `destroy` + `Win.create`），其余能力待设计 | 部分完成 | 负责人逐项设计时 | `01-api.md` / `07-web.md` | 进行中 |
 | T011 | **错误码表**：消息协议里 `error` 的 `code` 取值；目前 `error` 是字符串 | 待设计 | 与 T010 联动 | `02-architecture.md` | 待办 |
 | T008 | **配置字段校验**：`id` 必须为英文、**≤128 字符、不含空格**、缺失时回落 `webwin`；`version` 必须为三个数字的数组 | 待实现 | 配置校验完善时 | `06-package-json.md` | 待办 |
+| T012 | **`display-dpi-changed` 事件**：Windows 没有专门的显示器 DPI 变更消息，只能在 `WM_DISPLAYCHANGE` / `WM_SETTINGCHANGE` 那批消息里顺带 diff。**粒度未定**（按屏还是按进程、载荷给不给旧值），定下来前不实现 | 待设计 | 负责人决定 DPI 事件的语义时 | `../doc/display.md` / `01-api.md` | 待办 |
 
 ## T001 详情：JSON 序列化开销实测
 

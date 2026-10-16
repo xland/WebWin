@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin 显示设备 API 演示</title>
+	<style>
+		body {
+			font-family: system-ui, "Microsoft YaHei", sans-serif;
+			margin: 0;
+			padding: 16px;
+			color: #222;
+		}
+
+		section {
+			background: #fff;
+			border: 1px solid #e3e3e6;
+			border-radius: 8px;
+			padding: 16px;
+			margin-bottom: 16px;
+		}
+
+		h2 {
+			font-size: 14px;
+			margin: 0 0 12px;
+			color: #444;
+		}
+
+		.note {
+			font-size: 12px;
+			color: #888;
+			margin: 8px 0 0;
+		}
+
+		button {
+			font: inherit;
+			font-size: 13px;
+			padding: 6px 12px;
+			margin: 0 8px 8px 0;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+			background: #fff;
+			cursor: pointer;
+		}
+
+		button:hover {
+			background: #f0f0f2;
+		}
+
+		input[type="number"] {
+			font: inherit;
+			font-size: 13px;
+			width: 76px;
+			padding: 5px 6px;
+			margin: 0 6px 8px 0;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+		}
+
+		label {
+			font-size: 12px;
+			color: #666;
+		}
+
+		/* 取色演示：色块 + 色值，避免深色底配深色字看不清 */
+		.dot {
+			display: inline-block;
+			width: 14px;
+			height: 14px;
+			margin-right: 6px;
+			border: 1px solid #777;
+			vertical-align: -2px;
+		}
+
+		#shot {
+			display: none;
+			max-width: 100%;
+			margin-top: 10px;
+			border: 1px solid #e3e3e6;
+			border-radius: 4px;
+		}
+	</style>
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section>
+		<h2>显示器列表（display.getAll）</h2>
+		<button onclick="getAll()">display.getAll()</button>
+		<button onclick="getPrimary()">display.getPrimary()</button>
+		<div class="note">
+			每个元素是一块显示器：<code>id</code> 是设备名（<code>\\.\DISPLAY1</code>），
+			<code>bounds</code> 是屏幕矩形、<code>workArea</code> 是扣掉任务栏的工作区，
+			<code>scaleFactor</code> 是缩放百分比。
+			坐标与尺寸都是<b>物理像素</b>：150% 缩放的 4K 屏，bounds.width 是 3840。
+		</div>
+	</section>
+
+	<section>
+		<h2>按位置 / 矩形定位</h2>
+		<label>x</label><input id="posX" type="number" value="0">
+		<label>y</label><input id="posY" type="number" value="0">
+		<button onclick="getByPos()">display.getByPos(x, y)</button>
+		<label>w</label><input id="rectW" type="number" value="800">
+		<label>h</label><input id="rectH" type="number" value="600">
+		<button onclick="getByRect()">display.getByRect(x, y, w, h)</button>
+		<div class="note">
+			getByRect 取<b>重叠面积最大</b>的那块（窗口跨屏时归给占得最多的那块）；
+			矩形在所有屏幕之外时退化为"中心点最近的那块"，保证一定有返回。
+			坐标填 0/0 通常落在主屏，也可以填负坐标试副屏。
+		</div>
+	</section>
+
+	<section>
+		<h2>取色（display.getColor）</h2>
+		<button onclick="getColorAtCursor()">getColor()（鼠标位置）</button>
+		<label>x</label><input id="colorX" type="number" value="100">
+		<label>y</label><input id="colorY" type="number" value="100">
+		<button onclick="getColorAt()">getColor(x, y)</button>
+		<div id="colorBox"></div>
+		<div class="note">
+			不传坐标就取<b>鼠标当前位置</b>的颜色 —— 做取色器时不用自己跟踪鼠标。
+			点上面第一个按钮后，鼠标移到哪儿都不会自动刷新，再点一次才取。
+		</div>
+	</section>
+
+	<section>
+		<h2>截图（display.getImage）</h2>
+		<label>x</label><input id="imgX" type="number" value="0">
+		<label>y</label><input id="imgY" type="number" value="0">
+		<label>w</label><input id="imgW" type="number" value="800">
+		<label>h</label><input id="imgH" type="number" value="600">
+		<button onclick="getImage()">display.getImage(x, y, w, h)</button>
+		<img id="shot" alt="截图">
+		<div class="note">
+			返回 PNG 字节（走共享内存，零拷贝）。用完必须 <code>release()</code>，
+			否则底层共享内存一直占着。想截整块屏就把 w/h 填成那块屏的 bounds。
+		</div>
+	</section>
+
+	<section>
+		<h2>插拔事件（display.on）</h2>
+		<button onclick="subscribe()">订阅 display-added / display-removed</button>
+		<button onclick="unsubscribe()">取消订阅</button>
+		<div class="note">
+			订阅后插拔外接显示器（或在"显示设置"里改分辨率 / 排列）就会收到事件。
+			没有外接屏时，改一下分辨率也能触发一次重枚举。
+			DPI 变化事件（display-dpi-changed）暂未实现，见 arch/99-todo.md T012。
+		</div>
+	</section>
+
+	<script>
+		// 每个按钮对应一个函数：调用哪句 API、成功失败各打什么，一眼看全。
+		// 有返回值的把返回值打出来（JSON），没有返回值的只打 ok
+		function fail(what, e) {
+			// C++ 返回的错误是字符串，不是 Error 对象，所以取 message 前要判断一下
+			log(`${what} → 失败：${e && e.message ? e.message : e}`, 'err');
+		}
+
+		async function getAll() {
+			try {
+				const list = await display.getAll();
+				log(`display.getAll() → ${JSON.stringify(list)}`, 'ok');
+			} catch (e) { fail('display.getAll()', e); }
+		}
+
+		async function getPrimary() {
+			try {
+				const data = await display.getPrimary();
+				log(`display.getPrimary() → ${JSON.stringify(data)}`, 'ok');
+			} catch (e) { fail('display.getPrimary()', e); }
+		}
+
+		async function getByPos() {
+			const x = +document.getElementById('posX').value;
+			const y = +document.getElementById('posY').value;
+			try {
+				const data = await display.getByPos(x, y);
+				log(`display.getByPos(${x}, ${y}) → ${JSON.stringify(data)}`, 'ok');
+			} catch (e) { fail(`display.getByPos(${x}, ${y})`, e); }
+		}
+
+		async function getByRect() {
+			const x = +document.getElementById('posX').value;
+			const y = +document.getElementById('posY').value;
+			const w = +document.getElementById('rectW').value;
+			const h = +document.getElementById('rectH').value;
+			try {
+				const data = await display.getByRect(x, y, w, h);
+				log(`display.getByRect(${x}, ${y}, ${w}, ${h}) → ${JSON.stringify(data)}`, 'ok');
+			} catch (e) { fail(`display.getByRect(${x}, ${y}, ${w}, ${h})`, e); }
+		}
+
+		// ---------- 取色 ----------
+		async function getColorAtCursor() {
+			try {
+				const color = await display.getColor();
+				log(`display.getColor() → ${color}`, 'ok');
+				showColor(color);
+			} catch (e) { fail('display.getColor()', e); }
+		}
+
+		async function getColorAt() {
+			const x = +document.getElementById('colorX').value;
+			const y = +document.getElementById('colorY').value;
+			try {
+				const color = await display.getColor(x, y);
+				log(`display.getColor(${x}, ${y}) → ${color}`, 'ok');
+				showColor(color);
+			} catch (e) { fail(`display.getColor(${x}, ${y})`, e); }
+		}
+
+		// 返回值是 #RRGGBB 字符串，直接打成日志不直观，所以画成色块
+		function showColor(color) {
+			const box = document.getElementById('colorBox');
+			box.innerHTML = '';
+			const dot = document.createElement('span');
+			dot.className = 'dot';
+			dot.style.background = color;
+			box.appendChild(dot);
+			box.appendChild(document.createTextNode(color));
+		}
+
+		// ---------- 截图 ----------
+		let lastUrl = null; // 上一次的 blob url，换图时吊销掉，免得越攒越多
+
+		async function getImage() {
+			const x = +document.getElementById('imgX').value;
+			const y = +document.getElementById('imgY').value;
+			const w = +document.getElementById('imgW').value;
+			const h = +document.getElementById('imgH').value;
+			try {
+				const shot = await display.getImage(x, y, w, h);
+				log(`display.getImage(${x}, ${y}, ${w}, ${h}) → ${shot.width}×${shot.height}，${shot.buffer.byteLength} 字节`, 'ok');
+				// Blob 会拷一份数据，所以先建 Blob 再 release：释放后 buffer 就不能再读了
+				const url = URL.createObjectURL(new Blob([new Uint8Array(shot.buffer)], { type: 'image/png' }));
+				shot.release();
+				if (lastUrl) URL.revokeObjectURL(lastUrl);
+				lastUrl = url;
+
+				const img = document.getElementById('shot');
+				img.src = url;
+				img.style.display = 'block';
+			} catch (e) { fail(`display.getImage(${x}, ${y}, ${w}, ${h})`, e); }
+		}
+
+		// ---------- 插拔事件 ----------
+		// display.on 的返回值就是"取消订阅"函数，存起来，想停的时候调它
+		let offAdded = null, offRemoved = null;
+
+		function subscribe() {
+			if (offAdded) return; // 已订阅，不重复订阅
+			offAdded = display.on('display-added', d => log(`display-added → ${d.id}`, 'evt'));
+			offRemoved = display.on('display-removed', d => log(`display-removed → ${d.id}`, 'evt'));
+			log('已订阅 display-added / display-removed');
+		}
+
+		function unsubscribe() {
+			if (!offAdded) return; // 没订阅过
+			offAdded();
+			offRemoved();
+			offAdded = offRemoved = null;
+			log('已取消订阅');
+		}
+
+		// ---------- 切换页面时清理 ----------
+		// 外壳（index.html）切换左侧菜单时会调这个函数：
+		// C++ 那边记着"要给这个 iframe 推事件"，不撤的话事件会推给一个已经消失的文档
+		function unsubscribeAll() {
+			unsubscribe();
+		}
+
+		// ---------- 启动 ----------
+		window.addEventListener('load', () => {
+			log(`SDK 就绪：display 对象${typeof display === 'undefined' ? '缺失' : '已注入'}`);
+		});
+	</script>
+</body>
+
+</html>

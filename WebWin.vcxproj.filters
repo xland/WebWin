@@ -42,6 +42,15 @@
     <ClCompile Include="src\Json.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="src\Os.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Menu.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Display.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -69,6 +78,15 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="src\Json.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Os.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Menu.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Display.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

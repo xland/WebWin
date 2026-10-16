@@ -16,7 +16,7 @@
 | 7 | 访问系统进程 | |
 | 8 | 启动子进程（与子进程通信） | 含 stdin/stdout/stderr 管道通信 |
 | 9 | 启动 HTTP 服务 | 应用内起本地 HTTP 服务 |
-| 10 | 访问屏幕信息 | 显示器、分辨率、DPI 等 |
+| 10 | 访问屏幕信息 | 显示器、分辨率、DPI 等。**已落地**：`display.getAll()` / `getPrimary()` / `getByPos()` / `getByRect()` / `getColor()` / `getImage()` + `display-added` / `display-removed`（见 `../doc/display.md`）。DPI 变化事件待定（T012） |
 | 11 | 访问版本信息 | **系统版本 / 框架版本 / 应用版本** 三类。**系统版本已落地**：`os.getOsVer()` |
 | 12 | 目录操作 API | 创建、遍历、删除等 |
 | 13 | 访问常用目录 | 音乐、文档、数据目录等 |

@@ -30,10 +30,34 @@ export type Handler<T = unknown> = (payload: T) => void;
  */
 export type WebWinError = string | { code?: string; message?: string };
 
+/**
+ * 走共享内存返回的大块数据（见 arch/07-web.md 第八节）。
+ *
+ * 具体能力会在 `buffer` 之外再带上自己的字段（比如截图的 width / height）。
+ * `buffer` 是**只读**的：往里写会让渲染进程崩，所以用完调 `release()` 还回去。
+ */
+export interface SharedBufferData {
+	/** 原始字节（PNG、文件内容 …） */
+	buffer: ArrayBuffer;
+	/** 用完必须调用：把共享内存还给 C++，不调会一直占着 */
+	release(): void;
+	[key: string]: unknown;
+}
+
+/** C++ 用 PostSharedBufferToScript 推下来的事件（页面侧是 sharedbufferreceived） */
+interface SharedBufferReceivedEvent {
+	/** additionalDataAsJson 解析后的对象：C++ 把 { id, ok, data } 信封放在这里 */
+	additionalData?: unknown;
+	/** 取共享内存里的字节；同一个事件只能取一次 */
+	getBuffer(): ArrayBuffer;
+}
+
 interface WebViewChannel {
 	postMessage(message: unknown): void;
 	postMessageWithAdditionalObjects?(message: unknown, additionalObjects: unknown[]): void;
 	addEventListener(type: 'message', listener: (event: { data: unknown }) => void): void;
+	addEventListener(type: 'sharedbufferreceived', listener: (event: SharedBufferReceivedEvent) => void): void;
+	releaseBuffer(buffer: ArrayBuffer): void;
 }
 
 let channel: WebViewChannel | null = null;
@@ -115,6 +139,22 @@ export function installChannel(): WebWinConfig | null {
 			if (msg.ok) waiter.resolve(msg.data);
 			else waiter.reject(toError(msg.error));
 		}
+	});
+
+	// 共享内存：C++ 用 PostSharedBufferToScript 推下来的大块数据（截图 / 读文件）。
+	// 它不进主通道，靠 additionalData 里的 id 关联回某次调用
+	ch.addEventListener('sharedbufferreceived', (event) => {
+		const buffer = event.getBuffer(); // 必须先取出来，否则无从释放
+		const release = () => ch.releaseBuffer(buffer);
+		const raw = event.additionalData;
+		if (!raw || typeof raw !== 'object') { release(); return; }
+		const msg = raw as { id?: number; ok?: boolean; data?: unknown; error?: WebWinError };
+		const waiter = typeof msg.id === 'number' ? pending.get(msg.id) : undefined;
+		if (!waiter) { release(); return; } // 没人在等（页面已切走）：直接还回去
+		pending.delete(msg.id as number);
+		if (!msg.ok) { release(); waiter.reject(toError(msg.error)); return; }
+		// data 里的字段（width / height …）和 buffer 一起交给调用方
+		waiter.resolve({ ...(msg.data as Record<string, unknown> | undefined), buffer, release });
 	});
 	return config;
 }

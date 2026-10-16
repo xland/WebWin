@@ -14,6 +14,8 @@ using namespace winrt::Windows::Data::Json;
 class Json
 {
 public:
+	// 判断某个字段是否存在（比如"调用方有没有传坐标"）。obj 为空时返回 false
+	static bool hasKey(const JsonObject& obj, const wchar_t* key);
 	static bool getBool(const JsonObject& obj, const wchar_t* key, bool def);
 	static int getInt(const JsonObject& obj, const wchar_t* key, int def);
 	static std::wstring getString(const JsonObject& obj, const wchar_t* key, const std::wstring& def);

@@ -4,15 +4,25 @@
     <meta charset="utf-8" />
     <title>WebWin API 演示</title>
     <style>
+      /* 三栏就是一屏，整页不滚：滚动只发生在右边的日志区内部。
+         这里必须禁掉——否则 iframe 的行内基线会多出几像素，
+         加上 body 的上下 padding 就顶出纵向滚动条 */
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
+      }
+
       /* 三栏直接铺在 body 上：左目录 / 中功能（iframe）/ 右日志 */
       body {
         font-family: system-ui, "Microsoft YaHei", sans-serif;
         margin: 0;
         padding: 20px;
+        box-sizing: border-box; /* padding 吃进 100% 里，不再溢出 */
         color: #222;
         background: #f7f7f8;
         display: flex;
-        gap: 16px;
+        gap: 6px;
         align-items: flex-start;
       }
 
@@ -22,9 +32,12 @@
         margin-bottom: 16px;
       }
 
-      /* 左栏：能力域目录 */
+      /* 左栏：能力域目录。窗口很矮时让这一栏自己滚，
+         反正整页的 overflow 已经关掉了，不然会被直接裁掉 */
       .left {
         width: 130px;
+        max-height: 100%;
+        overflow: auto;
       }
 
       .left button {
@@ -64,21 +77,68 @@
       }
 
       #content {
+        display: block; /* iframe 默认 inline，行内基线会多出几像素撑高父容器 */
         width: 100%;
-        height: calc(100vh - 40px);
+        height: calc(100vh - 40px); /* 40px = body 上下 padding */
         border: 1px solid #e3e3e6;
         border-radius: 8px;
         background: #fff;
       }
 
-      /* 右栏：统一日志 */
+      /* 右栏：统一日志。宽度由分栏条拖拽改写，所以锁成"不伸不缩"，
+         剩下的空间全给 flex:1 的中栏 */
       .right {
         width: 420px;
+        flex: 0 0 auto;
         position: sticky;
         top: 20px;
         height: calc(100vh - 40px);
         display: flex;
         flex-direction: column;
+      }
+
+      /* 中栏 / 右栏 之间的拖拽条。
+         align-self:stretch 是因为 body 上设了 align-items:flex-start，
+         不拉伸的话它会缩成一小截 */
+      .splitter {
+        flex: 0 0 auto;
+        align-self: stretch;
+        width: 6px;
+        cursor: col-resize;
+        position: relative;
+        border-radius: 3px;
+        background: transparent;
+        transition: background 0.15s;
+        touch-action: none; /* 触屏拖拽交给 pointer 事件，别被页面滚动抢走 */
+      }
+
+      .splitter:hover,
+      .splitter.dragging {
+        background: #c9c9ce;
+      }
+
+      /* 竖排的三个点，让人一眼看出这里能拖 */
+      .splitter::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 2px;
+        height: 22px;
+        border-left: 2px dotted #9a9aa0;
+      }
+
+      /* 拖拽时：整页显示左右箭头光标，禁止选中文字 */
+      body.dragging {
+        user-select: none;
+        cursor: col-resize;
+      }
+
+      /* 拖拽时屏蔽 iframe：鼠标划过 iframe 会被它吃掉 pointer 事件，
+         这是分栏拖不动最经典的坑 */
+      body.dragging #content {
+        pointer-events: none;
       }
 
       #log {
@@ -91,7 +151,7 @@
         line-height: 1.6;
         padding: 12px;
         border-radius: 6px;
-        white-space: pre-wrap;
+        word-break: break-all;
       }
 
       .ok {
@@ -106,6 +166,30 @@
         color: #4fc1ff;
       }
 
+      /* 清空按钮的定位参照物：日志区自己会滚，按钮要是普通块级元素
+         就会跟着内容滚走，所以做成 absolute 悬浮在右上角 */
+      #logBox {
+        position: relative;
+        flex: 1;
+        display: flex;
+      }
+
+      #clearBtn {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 1;
+        padding: 3px 8px;
+        font-size: 11px;
+        background: rgba(255, 255, 255, 0.12);
+        border-color: #555;
+        color: #ccc;
+      }
+
+      #clearBtn:hover {
+        background: rgba(255, 255, 255, 0.22);
+      }
+
       button {
         font: inherit;
         font-size: 13px;
@@ -114,10 +198,6 @@
         border-radius: 4px;
         background: #fff;
         cursor: pointer;
-      }
-
-      .toolbar {
-        margin-top: 8px;
       }
     </style>
     <script src="log.js"></script>
@@ -128,6 +208,7 @@
     <div class="left">
       <button class="active" onclick="openPage('win.html', this)">窗口</button>
       <button onclick="openPage('os.html', this)">系统</button>
+      <button onclick="openPage('display.html', this)">显示</button>
       <button onclick="openPage('menu.html', this)">菜单</button>
       <button onclick="openPage('iframe.html', this)">子页面</button>
       <button onclick="openPage('app.html', this)">应用</button>
@@ -143,16 +224,71 @@
       <iframe id="content" src="win.html"></iframe>
     </div>
 
+    <!-- 中栏 / 右栏 之间的拖拽分栏条 -->
+    <div id="splitter" class="splitter" title="拖动调整宽度"></div>
+
     <!-- 右栏：统一日志 -->
     <div class="right">
-      <div id="log"></div>
-      <div class="toolbar">
-        <button onclick="clearLog()">清空日志</button>
+      <div id="logBox">
+        <div id="log"></div>
+        <button id="clearBtn" onclick="clearLog()">清空日志</button>
       </div>
     </div>
 
     <script>
       const frame = document.getElementById("content");
+
+      // ------- 中栏 / 右栏 拖拽分栏 -------
+      const splitter = document.getElementById("splitter");
+      const rightCol = document.querySelector(".right");
+
+      // 右栏的宽度上下限：再窄就看不清日志了，再宽会把中栏挤没
+      const RIGHT_MIN = 220;
+      const rightMax = () =>
+        Math.max(RIGHT_MIN, window.innerWidth - 480); // 给中栏至少留 480
+
+      let dragStartX = 0;
+      let dragStartWidth = 0;
+      let dragging = false;
+
+      splitter.addEventListener("pointerdown", (e) => {
+        // 指针捕获：之后哪怕鼠标划到 iframe 上面，事件也会回到 splitter，
+        // 不会拖到一半就断掉（配合 CSS 里 body.dragging #content 的屏蔽更稳）
+        splitter.setPointerCapture(e.pointerId);
+        dragging = true;
+        splitter.classList.add("dragging");
+        document.body.classList.add("dragging");
+        dragStartX = e.clientX;
+        dragStartWidth = rightCol.getBoundingClientRect().width;
+        e.preventDefault(); // 别让拖拽变成文字选中
+      });
+
+      splitter.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        // 鼠标往左移 clientX 变小 → 右栏应该变宽，所以是 (起点 - 当前)
+        const width = dragStartWidth + (dragStartX - e.clientX);
+        rightCol.style.width =
+          Math.min(rightMax(), Math.max(RIGHT_MIN, width)) + "px";
+      });
+
+      function endDrag(e) {
+        if (!dragging) return;
+        dragging = false;
+        splitter.classList.remove("dragging");
+        document.body.classList.remove("dragging");
+        if (e && splitter.hasPointerCapture(e.pointerId))
+          splitter.releasePointerCapture(e.pointerId);
+      }
+
+      splitter.addEventListener("pointerup", endDrag);
+      splitter.addEventListener("pointercancel", endDrag);
+
+      // 窗口变窄时 old 的右栏宽度可能超过新上限，跟着收一下
+      window.addEventListener("resize", () => {
+        const width = rightCol.getBoundingClientRect().width;
+        const max = rightMax();
+        if (width > max) rightCol.style.width = max + "px";
+      });
 
       // 切换演示页：换 src 之前先让旧页面撤掉它的订阅
       function openPage(file, btn) {

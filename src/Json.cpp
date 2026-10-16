@@ -2,6 +2,12 @@
 
 #include <winrt/Windows.Foundation.Collections.h>
 
+bool Json::hasKey(const JsonObject& obj, const wchar_t* key)
+{
+	if (!obj) return false; // 消息里没有 params 字段时 getObject 给的是空对象
+	return obj.HasKey(key);
+}
+
 bool Json::getBool(const JsonObject& obj, const wchar_t* key, bool def)
 {
 	if (!obj || !obj.HasKey(key)) return def;

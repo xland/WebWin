@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include "App.h"
+#include "Display.h"
 #include "Env.h"
 #include "Menu.h"
 #include "Os.h"
@@ -159,6 +160,22 @@ HWND Page::getHwnd() const
     return win->hwnd;
 }
 
+HRESULT Page::postSharedBuffer(ICoreWebView2SharedBuffer* buffer, const wchar_t* json, ICoreWebView2Frame2* frame)
+{
+    // 共享内存走独立通道：页面侧靠 sharedbufferreceived 事件收，不并入 { id, ok, data }
+    if (frame)
+    {
+        ComPtr<ICoreWebView2Frame4> frame4;
+        auto hr = frame->QueryInterface(IID_PPV_ARGS(&frame4));
+        if (FAILED(hr)) return hr; // Runtime 太旧，不支持帧级共享内存
+        return frame4->PostSharedBufferToScript(buffer, COREWEBVIEW2_SHARED_BUFFER_ACCESS_READ_ONLY, json);
+    }
+    ComPtr<ICoreWebView2_17> webview17;
+    auto hr = webview.As(&webview17);
+    if (FAILED(hr)) return hr; // Runtime 太旧，不支持共享内存
+    return webview17->PostSharedBufferToScript(buffer, COREWEBVIEW2_SHARED_BUFFER_ACCESS_READ_ONLY, json);
+}
+
 
 void Page::emitEvent(const std::wstring& name, int winId, const JsonObject& payload, ICoreWebView2Frame2* frame)
 {
@@ -240,16 +257,20 @@ void Page::handleMessage(const wchar_t* json, ICoreWebView2Frame2* frame)
 
     // 只按能力域分发：Page 认识域，具体方法交给各域自己处理。
     // 否则所有能力的方法都会堆在这一个文件里，加一个能力就膨胀一次
+    bool sent = false; // 能力域已自行把响应发回（目前只有走共享内存的 screenshot）
     if (type == L"win") Win::handleApi(method, params, winId, this, result, frame);
     else if (type == L"os") Os::handleApi(method, params, this, result, frame);
     else if (type == L"menu") Menu::handleApi(method, params, this, result, frame);
     else if (type == L"app") App::handleApi(method, params, this, result, frame);
+    else if (type == L"display") sent = Display::handleApi(method, params, this, result, frame);
     else {
         // 未知域回一个 error：前端 invoke 会 reject，而不是静默 resolve(undefined)。
         // 之前"原生侧改了却忘了重新编译 exe"就是被静默吞掉的，补上这条能直接暴露出来
         Json::setError(result, L"unknown type: " + type);
     }
 
+    // 再发一次 JSON 信封会让页面那头同一次调用被 resolve 两遍，所以跳过
+    if (sent) return;
     auto resultStr = result.Stringify();
     postJson(resultStr.c_str(), frame); // 结果送回发消息的那个文档
 }

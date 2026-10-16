@@ -17,6 +17,15 @@ class Page
 public:
 	Page(Win* win, const ComPtr<ICoreWebView2>& webview);
 	void emit(const JsonObject& eventData);
+	/**
+	 * 用共享内存把大块数据发回某个文档（见 arch/07-web.md 第八节）。
+	 *
+	 * json 是随 buffer 一起带的附加数据（页面靠它把 buffer 关联回某次调用）；
+	 * frame 为空表示发给顶级文档。返回 PostSharedBufferToScript 的 HRESULT
+	 * —— 不做布尔化：共享内存这条链路上的失败原因（Runtime 太旧、buffer 状态不对 …）
+	 * 光看 true/false 定位不出来，交给调用方带进错误信息里
+	 */
+	HRESULT postSharedBuffer(ICoreWebView2SharedBuffer* buffer, const wchar_t* json, ICoreWebView2Frame2* frame = nullptr);
 	/** 本页面所在窗口的句柄：弹菜单需要一个属主窗口 */
 	HWND getHwnd() const;
 private:
