@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin 系统 API 演示</title>
+	<style>
+		body {
+			font-family: system-ui, "Microsoft YaHei", sans-serif;
+			margin: 0;
+			padding: 16px;
+			color: #222;
+		}
+
+		section {
+			background: #fff;
+			border: 1px solid #e3e3e6;
+			border-radius: 8px;
+			padding: 16px;
+			margin-bottom: 16px;
+		}
+
+		h2 {
+			font-size: 14px;
+			margin: 0 0 12px;
+			color: #444;
+		}
+
+		.note {
+			font-size: 12px;
+			color: #888;
+			margin: 8px 0 0;
+		}
+
+		button {
+			font: inherit;
+			font-size: 13px;
+			padding: 6px 12px;
+			margin: 0 8px 8px 0;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+			background: #fff;
+			cursor: pointer;
+		}
+
+		button:hover {
+			background: #f0f0f2;
+		}
+
+		/* 配色演示：小色块 + 文字，避免深色底配深色字看不清 */
+		.swatch {
+			display: inline-block;
+			margin: 0 12px 6px 0;
+			font-size: 11px;
+			color: #d4d4d4;
+		}
+
+		.dot {
+			display: inline-block;
+			width: 12px;
+			height: 12px;
+			margin-right: 5px;
+			border: 1px solid #777;
+			vertical-align: -1px;
+		}
+	</style>
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section>
+		<h2>系统标识</h2>
+		<button onclick="getOsVer()">os.getOsVer()</button>
+		<button onclick="getCpuId()">os.getCpuId()</button>
+		<button onclick="getDiskId()">os.getDiskId()</button>
+		<div class="note">
+			getOsVer 拿的是真实系统版本（build ≥ 22000 时 versionName 为 win11）。
+			getCpuId / getDiskId 常用来做机器标识。
+		</div>
+	</section>
+
+	<section>
+		<h2>语言与配色</h2>
+		<button onclick="getUserLang()">os.getUserLang()</button>
+		<button onclick="getOsLang()">os.getOsLang()</button>
+		<button onclick="showColors()">os.getOsColor()（色块展示）</button>
+		<div class="note">
+			getUserLang 是"当前用户"的语言，getOsLang 是"系统"的语言 ——
+			两者在多用户机器上可能不同。
+		</div>
+	</section>
+
+	<section>
+		<h2>网卡与 IP</h2>
+		<button onclick="getIpAddr()">os.getIpAddr()</button>
+		<div class="note">只返回已启用、有 MAC 的网卡，且不含 127.0.0.1 / ::1。</div>
+	</section>
+
+	<section>
+		<h2>阻止休眠</h2>
+		<button onclick="preventSleep()">os.preventSleep()</button>
+		<button onclick="stopPreventSleep()">os.stopPreventSleep()</button>
+		<div class="note">
+			preventSleep 会一直阻止系统休眠和关屏，直到调用 stopPreventSleep 或进程退出。
+			测完记得点 stopPreventSleep。
+		</div>
+	</section>
+
+	<section>
+		<h2>锁屏事件（os.on）</h2>
+		<button onclick="subscribeOsLock()">订阅 osLock</button>
+		<button onclick="unsubscribeOsLock()">取消订阅</button>
+		<div class="note">
+			订阅后按 Win+L 锁屏，再解锁 —— 两次都会收到事件（locked: true / false）。
+		</div>
+	</section>
+
+	<script>
+		// 每个按钮对应一个函数：调用哪句 API、成功失败各打什么，一眼看全。
+		// 有返回值的把返回值打出来（JSON），没有返回值的只打 ok
+		async function getOsVer() {
+			try {
+				const data = await os.getOsVer();
+				log(`os.getOsVer() → ${JSON.stringify(data)}`, 'ok');
+			} catch (e) {
+				// C++ 返回的错误是字符串，不是 Error 对象，所以取 message 前要判断一下
+				log(`os.getOsVer() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function getCpuId() {
+			try {
+				const data = await os.getCpuId();
+				log(`os.getCpuId() → ${data}`, 'ok');
+			} catch (e) {
+				log(`os.getCpuId() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function getDiskId() {
+			try {
+				const data = await os.getDiskId();
+				log(`os.getDiskId() → ${data}`, 'ok');
+			} catch (e) {
+				log(`os.getDiskId() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function getUserLang() {
+			try {
+				const data = await os.getUserLang();
+				log(`os.getUserLang() → ${data}`, 'ok');
+			} catch (e) {
+				log(`os.getUserLang() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function getOsLang() {
+			try {
+				const data = await os.getOsLang();
+				log(`os.getOsLang() → ${data}`, 'ok');
+			} catch (e) {
+				log(`os.getOsLang() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function getIpAddr() {
+			try {
+				const data = await os.getIpAddr();
+				log(`os.getIpAddr() → ${JSON.stringify(data)}`, 'ok');
+			} catch (e) {
+				log(`os.getIpAddr() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function preventSleep() {
+			try {
+				await os.preventSleep();
+				log('os.preventSleep() → ok', 'ok');
+			} catch (e) {
+				log(`os.preventSleep() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function stopPreventSleep() {
+			try {
+				await os.stopPreventSleep();
+				log('os.stopPreventSleep() → ok', 'ok');
+			} catch (e) {
+				log(`os.stopPreventSleep() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// ---------- 系统配色 ----------
+		// 返回值是 #RRGGBB 字符串，直接打成 JSON 不直观，所以画成色块。
+		// 色块画在日志区里：外壳那一栏有 #log，这里往里追加一行
+		async function showColors() {
+			try {
+				const colors = await os.getOsColor();
+				log(`os.getOsColor() → ${JSON.stringify(colors)}`, 'ok');
+				const logBox = window.parent.document.getElementById('log') || document.getElementById('log');
+				const row = document.createElement('div');
+				for (const name in colors) {
+					const item = document.createElement('span');
+					item.className = 'swatch';
+
+					const dot = document.createElement('span');
+					dot.className = 'dot';
+					dot.style.background = colors[name];
+
+					item.appendChild(dot);
+					item.appendChild(document.createTextNode(`${name} ${colors[name]}`));
+					row.appendChild(item);
+				}
+				logBox.appendChild(row);
+				logBox.scrollTop = logBox.scrollHeight;
+			} catch (e) {
+				log(`os.getOsColor() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// ---------- 锁屏事件 ----------
+		// os.on 的返回值就是"取消订阅"函数，存起来，想停的时候调它
+		let offOsLock = null;
+
+		function subscribeOsLock() {
+			if (offOsLock) return; // 已订阅，不重复订阅
+			offOsLock = os.on('osLock', p => log(`osLock → ${p.locked ? '已锁屏' : '已解锁'}`, 'evt'));
+			log('已订阅 osLock');
+		}
+
+		function unsubscribeOsLock() {
+			if (!offOsLock) return; // 没订阅过
+			offOsLock();
+			offOsLock = null;
+			log('已取消订阅');
+		}
+
+		// ---------- 切换页面时清理 ----------
+		// 外壳（index.html）切换左侧菜单时会调这个函数：
+		// C++ 那边记着"要给这个 iframe 推事件"，不撤的话事件会推给一个已经消失的文档
+		function unsubscribeAll() {
+			unsubscribeOsLock();
+		}
+
+		// ---------- 启动 ----------
+		window.addEventListener('load', () => {
+			log(`SDK 就绪：os 对象${typeof os === 'undefined' ? '缺失' : '已注入'}`);
+		});
+	</script>
+</body>
+
+</html>

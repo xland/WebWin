@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin 菜单 API 演示</title>
+	<style>
+		body {
+			font-family: system-ui, "Microsoft YaHei", sans-serif;
+			margin: 0;
+			padding: 16px;
+			color: #222;
+		}
+
+		section {
+			background: #fff;
+			border: 1px solid #e3e3e6;
+			border-radius: 8px;
+			padding: 16px;
+			margin-bottom: 16px;
+		}
+
+		h2 {
+			font-size: 14px;
+			margin: 0 0 12px;
+			color: #444;
+		}
+
+		.note {
+			font-size: 12px;
+			color: #888;
+			margin: 8px 0 0;
+		}
+
+		button {
+			font: inherit;
+			font-size: 13px;
+			padding: 6px 12px;
+			margin: 0 8px 8px 0;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+			background: #fff;
+			cursor: pointer;
+		}
+
+		button:hover {
+			background: #f0f0f2;
+		}
+
+		.danger {
+			color: #c0392b;
+			border-color: #e0b4b0;
+		}
+	</style>
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section>
+		<h2>建菜单（Menu.create）</h2>
+		<button onclick="createMenu()">Menu.create([...])</button>
+		<button onclick="popupMenu()">menu.popup()（在鼠标处弹）</button>
+		<button class="danger" onclick="destroyMenu()">menu.destroy()</button>
+		<div class="note">
+			建出来的菜单长这样：4 个连着的 radio（同组互斥，Item3 默认勾选）、一条分隔线、
+			一个带子菜单的 View。点任意一项，回调的参数里带 checked（radio / checkbox 才有）。
+		</div>
+	</section>
+
+	<section>
+		<h2>挂到窗口（win.setContextMenu）</h2>
+		<button onclick="bindMenu()">win.setContextMenu(menu)</button>
+		<button onclick="unbindMenu()">win.setContextMenu(null)</button>
+		<div class="note">
+			挂上之后，在<b>本页面</b>里点右键就弹这个菜单（浏览器默认的右键菜单会被换掉）。
+			传 null 解绑，默认菜单回来。
+		</div>
+	</section>
+
+	<section>
+		<h2>验证：菜单弹出时主线程没卡死</h2>
+		<button onclick="startHeartbeat()">开始心跳</button>
+		<button onclick="stopHeartbeat()">停止心跳</button>
+		<div class="note">
+			点「开始心跳」→ 弹菜单（popup 或在页面里右键）→ <b>菜单别关</b>，看右侧日志。
+			日志还在每秒刷一行，就说明 UI 线程照常泵消息、JS 与 C++ 照常往返 —— 没被卡死。
+		</div>
+	</section>
+
+	<script>
+		let menu = null;
+
+		// ---------- 建菜单 ----------
+		async function createMenu() {
+			try {
+				menu = await Menu.create([
+					{ label: 'Item1', type: 'radio', onclick: info => onItem('Item1', info) },
+					{ label: 'Item2', type: 'radio', onclick: info => onItem('Item2', info) },
+					{ label: 'Item3', type: 'radio', checked: true, onclick: info => onItem('Item3', info) },
+					{ label: 'Item4', type: 'radio', onclick: info => onItem('Item4', info) },
+					{ type: 'separator' },
+					{
+						label: 'View',
+						submenu: [
+							{ label: 'Checkbox', type: 'checkbox', onclick: info => onItem('View / Checkbox', info) },
+							{ label: 'Normal', type: 'normal', id: 'abcdefg', onclick: info => onItem('View / Normal（id=abcdefg）', info) }
+						]
+					}
+				]);
+				log(`Menu.create → ok，菜单 id=${menu.id}`, 'ok');
+			} catch (e) {
+				// C++ 返回的错误是字符串，不是 Error 对象，所以取 message 前要判断一下
+				log(`Menu.create → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// 点击回调：radio / checkbox 的 info 里带 checked
+		function onItem(name, info) {
+			log(`点击 ${name}${info.checked === undefined ? '' : ` → checked=${info.checked}`}`, 'evt');
+		}
+
+		async function popupMenu() {
+			try {
+				await menu.popup();
+				log('menu.popup() → ok', 'ok');
+			} catch (e) {
+				log(`menu.popup() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function destroyMenu() {
+			try {
+				await menu.destroy();
+				menu = null;
+				log('menu.destroy() → ok', 'ok');
+			} catch (e) {
+				log(`menu.destroy() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// ---------- 挂到窗口 ----------
+		async function bindMenu() {
+			try {
+				await win.setContextMenu(menu);
+				log('win.setContextMenu(menu) → ok：在本页面里点右键试试', 'ok');
+			} catch (e) {
+				log(`win.setContextMenu(menu) → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function unbindMenu() {
+			try {
+				await win.setContextMenu(null);
+				log('win.setContextMenu(null) → ok：回到浏览器默认的右键菜单', 'ok');
+			} catch (e) {
+				log(`win.setContextMenu(null) → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// ---------- 心跳 ----------
+		// 每秒调一次 C++：菜单弹出时它还在跑，就证明主线程没被模态循环卡死
+		let heartbeat = null;
+
+		function startHeartbeat() {
+			if (heartbeat) return; // 已在跑
+			heartbeat = setInterval(async () => {
+				const id = await os.getCpuId();
+				log(`心跳 → os.getCpuId() = ${id}`, 'ok');
+			}, 1000);
+			log('心跳已开始（每秒调一次 C++）');
+		}
+
+		function stopHeartbeat() {
+			if (!heartbeat) return; // 没在跑
+			clearInterval(heartbeat);
+			heartbeat = null;
+			log('心跳已停止');
+		}
+
+		// ---------- 切换页面时清理 ----------
+		// 外壳（index.html）切换左侧菜单时会调这个函数
+		function unsubscribeAll() {
+			stopHeartbeat();
+		}
+
+		// ---------- 启动 ----------
+		window.addEventListener('load', () => {
+			log(`SDK 就绪：Menu 对象${typeof Menu === 'undefined' ? '缺失' : '已注入'}`);
+		});
+	</script>
+</body>
+
+</html>

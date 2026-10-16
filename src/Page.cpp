@@ -5,6 +5,8 @@
 
 #include "App.h"
 #include "Env.h"
+#include "Menu.h"
+#include "Os.h"
 #include "Win.h"
 #include "Page.h"
 #include "Json.h"
@@ -22,12 +24,29 @@ namespace {
 		auto size = SizeofResource(nullptr, hRes);
 		return { data, size };
 	}
+
+	// 事件回调给的是 ICoreWebView2Frame*，收发消息要用 ICoreWebView2Frame2*。
+	// 同一个 COM 对象对同一个 IID 的 QueryInterface 结果恒等，
+	// 所以可以用 Frame2 的指针值来认定"是不是同一个 iframe"
+	ComPtr<ICoreWebView2Frame2> asFrame2(ICoreWebView2Frame* frame)
+	{
+		ComPtr<ICoreWebView2Frame> holder(frame);
+		ComPtr<ICoreWebView2Frame2> frame2;
+		holder.As(&frame2);
+		return frame2;
+	}
 }
 
 
 Page::Page(Win* win, const ComPtr<ICoreWebView2>& webview) :win{ win }, webview{ webview }
 {
-    webview->AddWebResourceRequestedFilter(L"https://app.localhost/*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+    // 用带 RequestSourceKinds 的新接口：老的 AddWebResourceRequestedFilter 已废弃，
+    // 而且它只对主框架和同源 iframe 生效，其余 iframe 的请求拦不到
+    ComPtr<ICoreWebView2_22> webview22;
+    this->webview.As(&webview22);
+    webview22->AddWebResourceRequestedFilterWithRequestSourceKinds(
+        L"https://app.localhost/*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+        COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL);
     auto resRequestedCB = Callback<ICoreWebView2WebResourceRequestedEventHandler>(this, &Page::onRequest);
     webview->add_WebResourceRequested(resRequestedCB.Get(), nullptr);
 
@@ -44,6 +63,22 @@ Page::Page(Win* win, const ComPtr<ICoreWebView2>& webview) :win{ win }, webview{
 
     auto closeWindowCB = Callback<ICoreWebView2WindowCloseRequestedEventHandler>(this, &Page::onCloseWindow);
     webview->add_WindowCloseRequested(closeWindowCB.Get(), nullptr);
+
+    // iframe 里的文档也要能跟 C++ 通信：CoreWebView2 的 WebMessageReceived
+    // 只收顶级文档的消息，iframe 的得逐个 frame 订阅（见 onFrameCreated）
+    ComPtr<ICoreWebView2_4> webview4;
+    this->webview.As(&webview4);
+    if (webview4)
+    {
+        auto frameCreatedCB = Callback<ICoreWebView2FrameCreatedEventHandler>(this, &Page::onFrameCreated);
+        webview4->add_FrameCreated(frameCreatedCB.Get(), nullptr);
+    }
+
+    // 页面里点右键：挂了菜单就关掉浏览器默认的那个，改弹开发者建的菜单
+    ComPtr<ICoreWebView2_11> webview11;
+    this->webview.As(&webview11);
+    auto contextMenuCB = Callback<ICoreWebView2ContextMenuRequestedEventHandler>(this, &Page::onContextMenuRequested);
+    webview11->add_ContextMenuRequested(contextMenuCB.Get(), nullptr);
 
     injectSdk(); // 必须在导航之前注册，之后创建的每个文档都会执行
     loadPage();
@@ -115,19 +150,28 @@ void Page::loadPage()
 
 void Page::emit(const JsonObject& eventData)
 {
-    std::wstring eventDataStr{ eventData.Stringify() };
-    webview->PostWebMessageAsJson(eventDataStr.data());
+    auto eventDataStr = eventData.Stringify(); // hstring：直接拿它发，不必再拷一份 std::wstring
+    webview->PostWebMessageAsJson(eventDataStr.c_str());
+}
+
+HWND Page::getHwnd() const
+{
+    return win->hwnd;
 }
 
 
-void Page::emitEvent(const std::wstring& name, int winId, const JsonObject& payload)
+void Page::emitEvent(const std::wstring& name, int winId, const JsonObject& payload, ICoreWebView2Frame2* frame)
 {
     JsonObject msg;
     msg.SetNamedValue(L"name", JsonValue::CreateStringValue(name));
-    msg.SetNamedValue(L"winId", JsonValue::CreateNumberValue(winId));
-    msg.SetNamedValue(L"payload", JsonValue::Parse(payload.Stringify()));
+    // winId 小于 0 表示事件与窗口无关（os 域这类单例能力）：这时不下发 winId。
+    // 页面侧订阅时用的也是"无 winId"，下发了反而对不上订阅表的键
+    if (winId >= 0) msg.SetNamedValue(L"winId", JsonValue::CreateNumberValue(winId));
+    // payload 本身就是一个 JSON 值，直接塞进去；
+    // 不必先 Stringify 再 Parse —— 那是一次序列化 + 一次解析的白做功
+    msg.SetNamedValue(L"payload", payload);
     auto msgStr = msg.Stringify();
-    webview->PostWebMessageAsJson(msgStr.data());
+    postJson(msgStr.c_str(), frame); // frame 非空说明是某个 iframe 订阅的
 }
 
 HRESULT Page::onMsgReceived(ICoreWebView2* webview, ICoreWebView2WebMessageReceivedEventArgs* args)
@@ -135,8 +179,54 @@ HRESULT Page::onMsgReceived(ICoreWebView2* webview, ICoreWebView2WebMessageRecei
     PWSTR jsonRaw;
     auto hr = args->get_WebMessageAsJson(&jsonRaw);
     if (FAILED(hr)) return S_OK;
-    JsonObject param = JsonObject::Parse(jsonRaw);
+    handleMessage(jsonRaw, nullptr); // 顶级文档
     CoTaskMemFree(jsonRaw);
+    return S_OK;
+}
+
+HRESULT Page::onFrameCreated(ICoreWebView2* sender, ICoreWebView2FrameCreatedEventArgs* args)
+{
+    ComPtr<ICoreWebView2Frame> frame;
+    args->get_Frame(&frame);
+    ComPtr<ICoreWebView2Frame2> frame2;
+    frame.As(&frame2);
+    if (!frame2) return S_OK; // 拿不到收发消息的接口（理论不会），放弃这个 frame
+
+    // iframe 的消息不会走到 CoreWebView2::WebMessageReceived，必须按 frame 订阅
+    auto msgCB = Callback<ICoreWebView2FrameWebMessageReceivedEventHandler>(this, &Page::onFrameMsg);
+    frame2->add_WebMessageReceived(msgCB.Get(), nullptr);
+
+    // frame 销毁时要把它的订阅摘掉，否则订阅表里会留下失效的 frame
+    auto destroyedCB = Callback<ICoreWebView2FrameDestroyedEventHandler>(this, &Page::onFrameDestroyed);
+    frame2->add_Destroyed(destroyedCB.Get(), nullptr);
+
+    frames.push_back(frame2);
+    return S_OK;
+}
+
+HRESULT Page::onFrameMsg(ICoreWebView2Frame* sender, ICoreWebView2WebMessageReceivedEventArgs* args)
+{
+    PWSTR jsonRaw;
+    auto hr = args->get_WebMessageAsJson(&jsonRaw);
+    if (FAILED(hr)) return S_OK;
+    auto frame2 = asFrame2(sender);
+    handleMessage(jsonRaw, frame2.Get());
+    CoTaskMemFree(jsonRaw);
+    return S_OK;
+}
+
+HRESULT Page::onFrameDestroyed(ICoreWebView2Frame* sender, IUnknown* args)
+{
+    auto frame2 = asFrame2(sender);
+    Win::unsubscribeFrame(this, frame2.Get());
+    Menu::removeByFrame(this, frame2.Get()); // 这个 iframe 建的菜单一起销毁
+    std::erase_if(frames, [&](const ComPtr<ICoreWebView2Frame2>& item) { return item.Get() == frame2.Get(); });
+    return S_OK;
+}
+
+void Page::handleMessage(const wchar_t* json, ICoreWebView2Frame2* frame)
+{
+    JsonObject param = JsonObject::Parse(json);
 
     // 协议见 arch/02-architecture.md：上行 { id, type, method, params, winId? }
     // type 是能力域，method 是该域下的具体动作
@@ -150,7 +240,9 @@ HRESULT Page::onMsgReceived(ICoreWebView2* webview, ICoreWebView2WebMessageRecei
 
     // 只按能力域分发：Page 认识域，具体方法交给各域自己处理。
     // 否则所有能力的方法都会堆在这一个文件里，加一个能力就膨胀一次
-    if (type == L"win") Win::handleApi(method, params, winId, this, result);
+    if (type == L"win") Win::handleApi(method, params, winId, this, result, frame);
+    else if (type == L"os") Os::handleApi(method, params, this, result, frame);
+    else if (type == L"menu") Menu::handleApi(method, params, this, result, frame);
     else {
         // 未知域回一个 error：前端 invoke 会 reject，而不是静默 resolve(undefined)。
         // 之前"原生侧改了却忘了重新编译 exe"就是被静默吞掉的，补上这条能直接暴露出来
@@ -158,8 +250,15 @@ HRESULT Page::onMsgReceived(ICoreWebView2* webview, ICoreWebView2WebMessageRecei
     }
 
     auto resultStr = result.Stringify();
-    webview->PostWebMessageAsJson(resultStr.data());
-    return S_OK;
+    postJson(resultStr.c_str(), frame); // 结果送回发消息的那个文档
+}
+
+void Page::postJson(const wchar_t* json, ICoreWebView2Frame2* frame)
+{
+    // 顶级文档用 webview 发；iframe 必须发给它自己的 frame，
+    // 发给 webview 的话 iframe 收不到（只会落到顶级文档）
+    if (frame) frame->PostWebMessageAsJson(json);
+    else webview->PostWebMessageAsJson(json);
 }
 
 HRESULT Page::onCloseWindow(ICoreWebView2* sender, IUnknown* args)
@@ -170,6 +269,20 @@ HRESULT Page::onCloseWindow(ICoreWebView2* sender, IUnknown* args)
 
 HRESULT Page::onDomLoaded(ICoreWebView2* sender, ICoreWebView2DOMContentLoadedEventArgs* args)
 {
+    return S_OK;
+}
+
+HRESULT Page::onContextMenuRequested(ICoreWebView2* sender, ICoreWebView2ContextMenuRequestedEventArgs* args)
+{
+    if (win->menuId < 0) return S_OK; // 没挂菜单：走浏览器默认的右键菜单
+    args->put_Handled(TRUE);          // 关掉默认的那个，改弹开发者的
+
+    POINT pt;
+    GetCursorPos(&pt); // 屏幕坐标：菜单就弹在鼠标处
+    // 不在 WebView2 的事件回调里弹菜单（那里开模态循环等于"回调套回调"）：
+    // 只投一条消息，真正的弹出由窗口过程完成（见 Menu::popup）
+    PostMessage(win->hwnd, Menu::MSG_POPUP, win->menuId,
+        MAKELPARAM(static_cast<WORD>(static_cast<short>(pt.x)), static_cast<WORD>(static_cast<short>(pt.y))));
     return S_OK;
 }
 

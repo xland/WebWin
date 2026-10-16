@@ -1,4 +1,5 @@
 import { Ipc } from './Ipc';
+import type { Menu } from './Menu'; // 只要类型：不引运行时依赖，避免与 Ipc 成环
 
 /** 新建窗口的配置：复用 package.json 里 window 那套配置结构 */
 export interface WinOptions {
@@ -41,4 +42,12 @@ export class Win extends Ipc {
 	move(x: number, y: number): Promise<void> { return this.call('move', { x, y }); }
 	close(): Promise<void> { return this.call('close'); }
 	destroy(): Promise<void> { return this.call('destroy'); }
+
+	/**
+	 * 挂右键菜单：在本窗口里点右键就弹它。
+	 * 传 null 解绑 —— 之后重新走浏览器默认的右键菜单
+	 */
+	setContextMenu(menu: Menu | null): Promise<void> {
+		return this.call('setContextMenu', { menuId: menu ? menu.id : -1 });
+	}
 }

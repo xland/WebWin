@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin 子页面（iframe）演示</title>
+	<style>
+		body {
+			font-family: system-ui, "Microsoft YaHei", sans-serif;
+			margin: 0;
+			padding: 16px;
+			color: #222;
+		}
+
+		section {
+			background: #fff;
+			border: 1px solid #e3e3e6;
+			border-radius: 8px;
+			padding: 16px;
+			margin-bottom: 16px;
+		}
+
+		h2 {
+			font-size: 14px;
+			margin: 0 0 12px;
+			color: #444;
+		}
+
+		.note {
+			font-size: 12px;
+			color: #888;
+			margin: 8px 0 0;
+		}
+
+		button {
+			font: inherit;
+			font-size: 13px;
+			padding: 6px 12px;
+			margin: 0 8px 8px 0;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+			background: #fff;
+			cursor: pointer;
+		}
+
+		button:hover {
+			background: #f0f0f2;
+		}
+	</style>
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section>
+		<h2>子页面（iframe）与窗口通信</h2>
+		<div class="note">
+			中间这一栏本身就是 iframe —— <b>本页正跑在它里面</b>，
+			却和顶级页面一样能直接用 <code>win</code> 跟 C++ 通信：
+			调用照样生效，订阅的事件也照样收得到。
+			SDK 注入和消息收发都是按"文档"来的，子框架不另做处理。
+		</div>
+		<button onclick="resize700()">win.resize(700, 520)</button>
+		<button onclick="subscribe()">订阅 win resize</button>
+		<button onclick="unsubscribe()">取消订阅</button>
+		<div class="note">
+			订阅后拖动窗口边缘：事件来自<b>本页</b>的订阅。
+			事件是推给"订阅的那个文档"的 —— 切到「窗口」页再订阅一次，
+			同一时刻只有订阅者收得到（切换演示页时旧页面的订阅会被撤销）。
+		</div>
+	</section>
+
+	<script>
+		// 每个按钮对应一个函数：调用哪句 API、成功失败各打什么，一眼看全
+		async function resize700() {
+			try {
+				await win.resize(700, 520);
+				log('win.resize(700, 520) → ok', 'ok');
+			} catch (e) {
+				// C++ 返回的错误是字符串，不是 Error 对象，所以取 message 前要判断一下
+				log(`win.resize(700, 520) → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// win.on 的返回值就是"取消订阅"函数，存起来，想停的时候调它
+		let off = null;
+
+		function subscribe() {
+			if (off) return; // 已订阅，不重复订阅
+			off = win.on('resize', p => log(`win resize → ${p.width}×${p.height}`, 'evt'));
+			log('已订阅');
+		}
+
+		function unsubscribe() {
+			if (!off) return; // 没订阅过
+			off();
+			off = null;
+			log('已取消订阅');
+		}
+
+		// 外壳（index.html）切换左侧菜单时会调这个函数：
+		// C++ 那边记着"要给这个 iframe 推事件"，不撤的话事件会推给一个已经消失的文档
+		function unsubscribeAll() {
+			unsubscribe();
+		}
+
+		// ---------- 启动 ----------
+		window.addEventListener('load', () => {
+			log(`SDK 就绪：win 对象${typeof win === 'undefined' ? '缺失' : '已注入'}`);
+		});
+	</script>
+</body>
+
+</html>

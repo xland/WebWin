@@ -99,6 +99,8 @@
     <ClCompile Include="src\sqlite\sqlite3.c" />
     <ClCompile Include="src\Util.cpp" />
     <ClCompile Include="src\Win.cpp" />
+    <ClCompile Include="src\Os.cpp" />
+    <ClCompile Include="src\Menu.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -111,6 +113,8 @@
     <ClInclude Include="src\sqlite\sqlite3.h" />
     <ClInclude Include="src\Util.h" />
     <ClInclude Include="src\Win.h" />
+    <ClInclude Include="src\Os.h" />
+    <ClInclude Include="src\Menu.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\Res.rc" />

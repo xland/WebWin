@@ -42,6 +42,11 @@
 
 **开发者不直接接触 `window.chrome.webview`**，框架用 JS 把它封装掉。
 
+> **iframe 需要额外处理**：上面这两个 API 只收发**顶级文档**的消息，
+> iframe 要走 frame 级接口（收发都是 `ICoreWebView2Frame2`）。
+> 框架已按"文档"粒度处理：顶级文档和每个 iframe 各自独立收发、独立订阅事件。
+> 详见 `03-tech-stack.md` 的"iframe 与 C++ 的通信"。
+
 ## JS SDK（框架注入）
 
 框架提供一套 JS 封装，并**注入到开发者页面中**，供开发者访问框架 API。
@@ -76,11 +81,21 @@ WebWin.on('window.resize', (e) => { ... });
 
 通道层已按本协议实现：`src/web/webwin.ts` 编译后以 RCDATA 资源内嵌（`src/web/dist/webwin.js`），
 由 `Page::injectSdk()` 用 `AddScriptToExecuteOnDocumentCreated` 注入。
-通信能力是 `Ipc` 基类（`protected`，不暴露给开发者），各能力域继承它；
-窗口能力域（`Win` / 全局 `win`）已落地，其余能力随 `01-api.md` 逐项开放。
+通信能力是 `Ipc` 基类：通道方法（`call` / `invoke` / `request`）`protected`，
+不暴露给开发者；事件 API（`on` / `off`）公开，各能力域继承它。
+已落地的能力域：
+
+| 域 | 全局对象 | 与窗口的关系 |
+| --- | --- | --- |
+| `win` | `win`（当前窗口）、`Win`（窗口类型） | 绑定窗口，事件按窗口分发 |
+| `os` | `os`（全局单例） | **与窗口无关**，事件全局订阅 |
+
+其余能力随 `01-api.md` 逐项开放。
 
 上行消息可携带 `winId`：它是"操作哪个窗口"的路由凭据，
 C++ 侧据此把消息落到指定窗口（见 `arch/07-web.md`）。
+不带 `winId` 表示"与窗口无关"（`os` 这类单例能力），C++ 侧取到 `Win::NO_WINDOW`（-1）；
+它订阅的事件也**不下发 `winId` 字段** —— 页面侧订阅时用的是 `null`，下发了就对不上键。
 
 **C++ 侧分两层分发**：`Page` 只按 `type` 把消息路由到对应能力域的处理器，
 再由该处理器按 `method` 处理具体业务 —— 避免所有能力的方法都堆在 `Page` 里。

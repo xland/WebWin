@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>WebWin API 演示</title>
+    <style>
+      /* 三栏直接铺在 body 上：左目录 / 中功能（iframe）/ 右日志 */
+      body {
+        font-family: system-ui, "Microsoft YaHei", sans-serif;
+        margin: 0;
+        padding: 20px;
+        color: #222;
+        background: #f7f7f8;
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+      }
+
+      .note {
+        font-size: 12px;
+        color: #888;
+        margin-bottom: 16px;
+      }
+
+      /* 左栏：能力域目录 */
+      .left {
+        width: 130px;
+      }
+
+      .left button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        font: inherit;
+        font-size: 13px;
+        padding: 8px 12px;
+        margin: 0 0 6px;
+        border: 1px solid #c8c8cc;
+        border-radius: 4px;
+        background: #fff;
+        cursor: pointer;
+      }
+
+      .left button:hover {
+        background: #f0f0f2;
+      }
+
+      .left button.active {
+        background: #2a6ecb;
+        border-color: #2a6ecb;
+        color: #fff;
+      }
+
+      .left button:disabled {
+        color: #bbb;
+        border-color: #e3e3e6;
+        cursor: not-allowed;
+      }
+
+      /* 中栏：演示页跑在 iframe 里 */
+      .middle {
+        flex: 1;
+        min-width: 0;
+      }
+
+      #content {
+        width: 100%;
+        height: calc(100vh - 40px);
+        border: 1px solid #e3e3e6;
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      /* 右栏：统一日志 */
+      .right {
+        width: 420px;
+        position: sticky;
+        top: 20px;
+        height: calc(100vh - 40px);
+        display: flex;
+        flex-direction: column;
+      }
+
+      #log {
+        flex: 1;
+        overflow: auto;
+        background: #1e1e1e;
+        color: #d4d4d4;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        line-height: 1.6;
+        padding: 12px;
+        border-radius: 6px;
+        white-space: pre-wrap;
+      }
+
+      .ok {
+        color: #6a9955;
+      }
+
+      .err {
+        color: #f07178;
+      }
+
+      .evt {
+        color: #4fc1ff;
+      }
+
+      button {
+        font: inherit;
+        font-size: 13px;
+        padding: 6px 12px;
+        border: 1px solid #c8c8cc;
+        border-radius: 4px;
+        background: #fff;
+        cursor: pointer;
+      }
+
+      .toolbar {
+        margin-top: 8px;
+      }
+    </style>
+    <script src="log.js"></script>
+  </head>
+
+  <body>
+    <!-- 左栏：能力域目录 -->
+    <div class="left">
+      <button class="active" onclick="openPage('win.html', this)">窗口</button>
+      <button onclick="openPage('os.html', this)">系统</button>
+      <button onclick="openPage('menu.html', this)">菜单</button>
+      <button onclick="openPage('iframe.html', this)">子页面</button>
+      <button disabled>托盘（未实现）</button>
+      <button disabled>对话框（未实现）</button>
+      <div class="note" style="margin: 10px 0 0">
+        灰掉的能力还没实现，做出来后在这里加一项即可。
+      </div>
+    </div>
+
+    <!-- 中栏：演示页 -->
+    <div class="middle">
+      <iframe id="content" src="win.html"></iframe>
+    </div>
+
+    <!-- 右栏：统一日志 -->
+    <div class="right">
+      <div id="log"></div>
+      <div class="toolbar">
+        <button onclick="clearLog()">清空日志</button>
+      </div>
+    </div>
+
+    <script>
+      const frame = document.getElementById("content");
+
+      // 切换演示页：换 src 之前先让旧页面撤掉它的订阅
+      function openPage(file, btn) {
+        // C++ 那边记着"要给这个 iframe 推事件"，不撤的话事件会推给一个已经消失的文档。
+        // 用 ?. 是因为刚建好还没加载的 iframe 里没有这个函数
+        frame.contentWindow.unsubscribeAll?.();
+        frame.src = file;
+
+        for (const item of document.querySelectorAll(".left button"))
+          item.classList.remove("active");
+        btn.classList.add("active");
+        log(`切换到 ${file}`);
+      }
+
+      function clearLog() {
+        document.getElementById("log").innerHTML = "";
+      }
+
+      window.addEventListener("load", () => {
+        log(
+          `SDK 就绪：win 对象${typeof win === "undefined" ? "缺失" : "已注入"}`,
+        );
+      });
+    </script>
+  </body>
+</html>

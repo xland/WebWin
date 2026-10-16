@@ -8,13 +8,27 @@
 #include "Win.h"
 #include "Env.h"
 #include "Json.h"
+#include "Menu.h"
 #include "App.h"
 
 namespace {
     std::vector<std::unique_ptr<Win>> winDic;
-	// 订阅表：(窗口 id, 事件名) -> 订阅该事件的页面。
-	// 同一个窗口的同一事件可以被多个页面同时订阅（A 和 C 都听 B 的 resize）
-	std::map<std::pair<int, std::wstring>, std::set<Page*>> eventSubs;
+
+	// 订阅表里的一条：一个"文档"= 某个页面 + 页面里的某个 iframe。
+	// frame 为空表示页面的顶级文档。iframe 也要能单独订阅，
+	// 因为 C++ 往回推消息时必须发到具体的那个 frame（见 Page::postJson）
+	struct EventSub
+	{
+		Page* page{ nullptr };
+		ComPtr<ICoreWebView2Frame2> frame; // 空 = 顶级文档
+		bool operator<(const EventSub& other) const
+		{
+			if (page != other.page) return page < other.page;
+			return frame.Get() < other.frame.Get();
+		}
+	};
+	// 同一个窗口的同一事件可以被多个文档同时订阅（A 页面、C 页面、以及某个 iframe）
+	std::map<std::pair<int, std::wstring>, std::set<EventSub>> eventSubs;
 
 	void removeWin(Win* win)
 	{
@@ -248,17 +262,36 @@ Win* Win::getById(int id)
 	return nullptr; // 窗口已关闭
 }
 
-void Win::subscribeEvent(int winId, const std::wstring& name, Page* page)
+void Win::subscribeEvent(int winId, const std::wstring& name, Page* page, ICoreWebView2Frame2* frame)
 {
-	eventSubs[{ winId, name }].insert(page);
+	EventSub sub;
+	sub.page = page;
+	sub.frame = frame; // 为空 = 顶级文档
+	eventSubs[{ winId, name }].insert(sub);
 }
 
-void Win::unsubscribeEvent(int winId, const std::wstring& name, Page* page)
+void Win::unsubscribeEvent(int winId, const std::wstring& name, Page* page, ICoreWebView2Frame2* frame)
 {
 	auto it = eventSubs.find({ winId, name });
 	if (it == eventSubs.end()) return;
-	it->second.erase(page);
+	EventSub sub;
+	sub.page = page;
+	sub.frame = frame;
+	it->second.erase(sub);
 	if (it->second.empty()) eventSubs.erase(it);
+}
+
+void Win::unsubscribeFrame(Page* page, ICoreWebView2Frame2* frame)
+{
+	// iframe 销毁后必须摘掉它的订阅：否则事件会推给一个已经不存在的 frame
+	for (auto it = eventSubs.begin(); it != eventSubs.end();)
+	{
+		std::erase_if(it->second, [&](const EventSub& sub) {
+			return sub.page == page && sub.frame.Get() == frame;
+		});
+		if (it->second.empty()) it = eventSubs.erase(it);
+		else ++it;
+	}
 }
 
 void Win::fireEvent(int winId, const std::wstring& name, const JsonObject& payload)
@@ -266,18 +299,18 @@ void Win::fireEvent(int winId, const std::wstring& name, const JsonObject& paylo
 	auto it = eventSubs.find({ winId, name });
 	if (it == eventSubs.end()) return; // 没人订阅：不发
 	auto subscribers = it->second; // 拷贝：回调过程中订阅表可能变动
-	for (auto page : subscribers) page->emitEvent(name, winId, payload);
+	for (auto& sub : subscribers) sub.page->emitEvent(name, winId, payload, sub.frame.Get());
 }
 
-void Win::handleApi(const std::wstring& method, const JsonObject& params, int winId, Page* page, JsonObject& result)
+void Win::handleApi(const std::wstring& method, const JsonObject& params, int winId, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
 {
-	// 事件订阅：登记"哪个页面要听哪个窗口的哪个事件"，之后才推（订阅后推）
+	// 事件订阅：登记"哪个文档要听哪个窗口的哪个事件"，之后才推（订阅后推）
 	if (method == L"on" || method == L"off")
 	{
 		auto name = Json::getString(params, L"name", L"");
 		if (winId < 0 || name.empty()) { Json::setError(result, L"invalid event subscription"); return; }
-		if (method == L"on") subscribeEvent(winId, name, page);
-		else unsubscribeEvent(winId, name, page);
+		if (method == L"on") subscribeEvent(winId, name, page, frame);
+		else unsubscribeEvent(winId, name, page, frame);
 		Json::setOk(result);
 		return;
 	}
@@ -297,18 +330,19 @@ void Win::handleApi(const std::wstring& method, const JsonObject& params, int wi
 	if (!target) { Json::setError(result, L"window not found: " + std::to_wstring(winId)); return; }
 	auto hwnd = target->hwnd;
 
-	// 这几个方法都会改变窗口几何；close / destroy 之后窗口没了，不用（也不能）重置
-	auto geometryChanged = true;
-	// minimize / hide 要在窗口状态改变**之前**清 hover：窗口一旦隐藏，
-	// 浏览器很可能不再处理鼠标消息，那时再发 WM_MOUSELEAVE 就是白发
-	if (method == L"minimize" || method == L"hide") target->resetHoverState();
+	// 改变窗口几何，并清掉残留的 :hover（见 resetHoverState）。
+	// 清理时机分三种，目的都是"只清一次，不做重复劳动"：
+	//   - minimize / hide：在**之前**清。窗口一旦隐藏，浏览器可能不再处理鼠标消息
+	//   - show / move：在**之后**清。它们不改变尺寸，不会触发 WM_SIZE
+	//   - maximize / restore / resize：**这里不写**。它们会同步触发 WM_SIZE，
+	//     由 winProc 统一处理，这里再调一次就是白做一遍
 	if (method == L"maximize") ShowWindow(hwnd, SW_MAXIMIZE);
-	else if (method == L"minimize") ShowWindow(hwnd, SW_MINIMIZE);
+	else if (method == L"minimize") { target->resetHoverState(); ShowWindow(hwnd, SW_MINIMIZE); }
 	else if (method == L"restore") ShowWindow(hwnd, SW_RESTORE);
-	else if (method == L"hide") ShowWindow(hwnd, SW_HIDE);
-	else if (method == L"show") ShowWindow(hwnd, SW_SHOW);
-	else if (method == L"close") { PostMessage(hwnd, WM_CLOSE, 0, 0); geometryChanged = false; }
-	else if (method == L"destroy") { DestroyWindow(hwnd); geometryChanged = false; }
+	else if (method == L"hide") { target->resetHoverState(); ShowWindow(hwnd, SW_HIDE); }
+	else if (method == L"show") { ShowWindow(hwnd, SW_SHOW); target->resetHoverState(); }
+	else if (method == L"close") PostMessage(hwnd, WM_CLOSE, 0, 0);     // 窗口没了，不用清
+	else if (method == L"destroy") DestroyWindow(hwnd);                 // 同上
 	else if (method == L"resize")
 	{
 		RECT rect;
@@ -320,9 +354,14 @@ void Win::handleApi(const std::wstring& method, const JsonObject& params, int wi
 		RECT rect;
 		GetWindowRect(hwnd, &rect);
 		SetWindowPos(hwnd, nullptr, Json::getInt(params, L"x", 0), Json::getInt(params, L"y", 0), rect.right - rect.left, rect.bottom - rect.top, SWP_NOZORDER | SWP_NOACTIVATE);
+		target->resetHoverState();
+	}
+	else if (method == L"setContextMenu")
+	{
+		// 挂窗口右键菜单：传 menuId < 0 表示解绑（重新走浏览器默认的右键菜单）
+		target->menuId = Json::getInt(params, L"menuId", -1);
 	}
 	else { Json::setError(result, L"unknown method: " + method); return; }
-	if (geometryChanged) target->resetHoverState();
 	Json::setOk(result);
 }
 
@@ -330,11 +369,12 @@ void Win::resetHoverState()
 {
 	if (!hwnd || !ctrl) return;
 	ctrl->NotifyParentWindowPositionChanged(); // 官方 API：父窗口几何变了要同步
-	bool found = false;
-	EnumChildWindows(hwnd, postMouseLeave, reinterpret_cast<LPARAM>(&found));
-#ifdef _DEBUG
-	if (!found) OutputDebugStringW(L"[WebWin] 未找到 webview 窗口，:hover 未重置（Chromium 窗口层级可能已变）\n");
-#endif
+	HWND hwndWebView = FindWindowEx(hwnd, nullptr, L"Chrome_WidgetWin_0", nullptr);
+	PostMessage(hwndWebView, WM_MOUSEMOVE, 0, 0);
+	PostMessage(hwndWebView, WM_MOUSELEAVE, 0, 0);
+	HWND hwndInner = FindWindowEx(hwndWebView, nullptr, NULL, nullptr);
+	PostMessage(hwndInner, WM_MOUSEMOVE, 0, 0);
+	PostMessage(hwndInner, WM_MOUSELEAVE, 0, 0);
 }
 
 std::wstring& Win::getClsName()
@@ -376,9 +416,11 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		payload.SetNamedValue(L"width", JsonValue::CreateNumberValue(bounds.right - bounds.left));
 		payload.SetNamedValue(L"height", JsonValue::CreateNumberValue(bounds.bottom - bounds.top));
 		Win::fireEvent(winObj->id, L"resize", payload);
-		// 覆盖原生触发的几何变化：拖边缘、双击标题栏、Win+方向键分屏。
-		// 这些不走 handleApi，鼠标又没动，:hover 会留在原来的元素上
-		winObj->resetHoverState();
+		// 覆盖原生触发的几何变化：拖边缘、双击标题栏、Win+方向键分屏、最大化 / 还原
+		// （鼠标没动，:hover 会留在原来的元素上）。也覆盖 handleApi 里的
+		// maximize / restore / resize —— 它们同步触发本消息，那边就不必再清一次。
+		// 最小化例外：WM_SYSCOMMAND 的 SC_MINIMIZE 更早且窗口尚未隐藏，那时已经清过
+		if (wParam != SIZE_MINIMIZED) winObj->resetHoverState();
 		return 0;
 	}
 	case WM_MOVE:
@@ -414,16 +456,28 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		if (wParam == TRUE && !winObj->frame) return WVR_REDRAW;
 		break;
 	}
+	case Menu::MSG_POPUP:
+	{
+		// 菜单在这里弹：窗口过程本身就是消息流，不是 WebView2 的事件回调，
+		// 在这里开模态循环不会有"回调里套回调"的重入问题。
+		// 发起方（右键回调 / popup 请求）都只是投了本消息，没有直接调 Menu::popup
+		Menu::popup(static_cast<int>(wParam), hwnd,
+			static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)));
+		return 0;
+	}
 	case WM_DESTROY:
 	{
 		// 窗口没了：它作为被订阅对象的条目、以及它自己订阅的条目，全部清理，
 		// 否则订阅表会留下悬挂的 Page* 与失效的窗口 id
 		for (auto it = eventSubs.begin(); it != eventSubs.end();)
 		{
-			it->second.erase(winObj->page.get());
+			// 本页面的所有文档（顶级 + 它的全部 iframe）都要摘掉
+			const auto page = winObj->page.get();
+			std::erase_if(it->second, [page](const EventSub& sub) { return sub.page == page; });
 			if (it->first.first == winObj->id || it->second.empty()) it = eventSubs.erase(it);
 			else ++it;
 		}
+		Menu::removeByPage(winObj->page.get()); // 本页建的菜单一起销毁：点击已无处可推
 		removeWin(winObj);
 		if (App::get()->getQuitWhenNoWindow() && winDic.empty()) PostQuitMessage(0);
 		return 0;

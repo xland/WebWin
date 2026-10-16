@@ -29,6 +29,8 @@ export type WebWinError = string | {
     code?: string;
     message?: string;
 };
+/** @internal 接上菜单点击的分发器 */
+export declare function setMenuClickDispatcher(fn: (msg: unknown) => void): void;
 /**
  * 建立通道并注册接收。成功返回注入的配置，失败返回 null（此时不应安装 SDK）。
  * @internal
@@ -53,9 +55,9 @@ export declare class Ipc {
      */
     protected call<T = unknown>(method: string, params?: Payload, additionalObjects?: unknown[]): Promise<T>;
     /** 订阅事件；返回取消订阅的函数 */
-    protected on<T = unknown>(name: string, handler: Handler<T>): () => void;
+    on<T = unknown>(name: string, handler: Handler<T>): () => void;
     /** 取消订阅 */
-    protected off<T = unknown>(name: string, handler: Handler<T>): void;
+    off<T = unknown>(name: string, handler: Handler<T>): void;
     /** 供子类在还没有实例时发请求（如 Win.create 要先拿到窗口 id） */
     protected static request<T = unknown>(type: string, method: string, params?: Payload, winId?: number | null, additionalObjects?: unknown[]): Promise<T>;
 }

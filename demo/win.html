@@ -8,20 +8,8 @@
 		body {
 			font-family: system-ui, "Microsoft YaHei", sans-serif;
 			margin: 0;
-			padding: 24px;
+			padding: 16px;
 			color: #222;
-			background: #f7f7f8;
-		}
-
-		h1 {
-			font-size: 18px;
-			margin: 0 0 4px;
-		}
-
-		.note {
-			font-size: 12px;
-			color: #888;
-			margin-bottom: 20px;
 		}
 
 		section {
@@ -36,6 +24,12 @@
 			font-size: 14px;
 			margin: 0 0 12px;
 			color: #444;
+		}
+
+		.note {
+			font-size: 12px;
+			color: #888;
+			margin: 8px 0 0;
 		}
 
 		button {
@@ -63,148 +57,235 @@
 			color: #c0392b;
 			border-color: #e0b4b0;
 		}
-
-		#log {
-			height: 220px;
-			overflow: auto;
-			background: #1e1e1e;
-			color: #d4d4d4;
-			font-family: Consolas, "Courier New", monospace;
-			font-size: 12px;
-			line-height: 1.6;
-			padding: 12px;
-			border-radius: 6px;
-			white-space: pre-wrap;
-		}
-
-		.ok {
-			color: #6a9955;
-		}
-
-		.err {
-			color: #f07178;
-		}
-
-		.evt {
-			color: #4fc1ff;
-		}
-
 	</style>
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
 </head>
 
 <body>
-	<h1>WebWin 窗口 API 演示</h1>
-	<div class="note">页面里直接可用的全局对象：<code>win</code>（当前窗口）与 <code>Win</code>（窗口类型）。</div>
-
 	<section>
 		<h2>当前窗口（win）</h2>
-		<button onclick="call('win.maximize', () => win.maximize())">maximize</button>
-		<button onclick="call('win.minimize', () => win.minimize())">minimize</button>
-		<button onclick="call('win.restore', () => win.restore())">restore</button>
-		<button onclick="call('win.hide', () => win.hide())">hide</button>
-		<button onclick="call('win.show', () => win.show())">show</button>
-		<button onclick="call('win.resize(1200, 800)', () => win.resize(1200, 800))">resize 1200×800</button>
-		<button onclick="call('win.resize(800, 600)', () => win.resize(800, 600))">resize 800×600</button>
-		<button onclick="call('win.move(100, 100)', () => win.move(100, 100))">move 100,100</button>
-		<button class="danger" onclick="call('win.close', () => win.close())">close（关闭本窗口）</button>
+		<button onclick="maximize()">win.maximize()</button>
+		<button onclick="minimize()">win.minimize()</button>
+		<button onclick="restore()">win.restore()</button>
+		<button onclick="hideWin()">win.hide()</button>
+		<button onclick="showWin()">win.show()</button>
+		<button onclick="resize1200()">win.resize(1200, 800)</button>
+		<button onclick="resize800()">win.resize(800, 600)</button>
+		<button onclick="move100()">win.move(100, 100)</button>
+		<button class="danger" onclick="closeWin()">win.close()（关闭本窗口）</button>
 	</section>
 
 	<section>
-		<h2>当前窗口事件</h2>
-		<button id="btnSub" onclick="toggleSubscribe()">订阅 win resize / move</button>
-		<span class="note">订阅后拖动窗口边缘，事件会打印到下方日志</span>
+		<h2>当前窗口事件（win.on）</h2>
+		<button onclick="subscribeWin()">订阅 resize / move</button>
+		<button onclick="unsubscribeWin()">取消订阅</button>
+		<div class="note">订阅后拖动窗口边缘或标题栏，事件会打印到右侧日志。</div>
 	</section>
 
 	<section>
 		<h2>新建窗口（Win.create）</h2>
-		<button onclick="createWin()">Win.create(...)</button>
-		<button id="btnSub2" disabled onclick="toggleSubscribe2()">订阅新窗口 resize</button>
-		<button id="btnMax2" disabled onclick="call('win2.maximize', () => win2.maximize())">新窗口 maximize</button>
-		<button id="btnResize2" disabled onclick="call('win2.resize(600, 400)', () => win2.resize(600, 400))">新窗口 resize</button>
-		<button id="btnClose2" disabled class="danger" onclick="call('win2.close', () => win2.close())">新窗口 close</button>
-		<button id="btnDestroy2" disabled class="danger" onclick="call('win2.destroy', () => win2.destroy())">新窗口 destroy</button>
-		<div class="note">窗口关闭后再调用它的方法，应当拿到 C++ 返回的错误信息 —— 用「新窗口 maximize」验证。</div>
-	</section>
-
-	<section>
-		<h2>日志</h2>
-		<div id="log"></div>
-		<button onclick="document.getElementById('log').innerHTML = ''">清空</button>
+		<div id="newWinButtons">
+			<button onclick="createWin()">Win.create({...})</button>
+			<button disabled onclick="subscribeWin2()">订阅 win2 的 resize</button>
+			<button disabled onclick="win2Maximize()">win2.maximize()</button>
+			<button disabled onclick="win2Resize()">win2.resize(600, 400)</button>
+			<button disabled class="danger" onclick="win2Close()">win2.close()</button>
+			<button disabled class="danger" onclick="win2Destroy()">win2.destroy()</button>
+		</div>
+		<div class="note">
+			新窗口加载的还是本页面。窗口关闭后再调用它的方法，会拿到 C++ 返回的错误信息 —— 用 win2.maximize() 验证。
+			新窗口的事件由本页面的 win2 接收，不会落进新窗口自己的 win。
+		</div>
 	</section>
 
 	<script>
-		const logBox = document.getElementById('log');
-		let win2 = null;        // 新建窗口的句柄
-		let offResize = null;   // 当前窗口事件的取消订阅函数
-		let offResize2 = null;  // 新窗口事件的取消订阅函数
-
-		function log(text, kind) {
-			const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-			const line = document.createElement('div');
-			if (kind) line.className = kind;
-			line.textContent = `[${time}] ${text}`;
-			logBox.appendChild(line);
-			logBox.scrollTop = logBox.scrollHeight;
+		// ---------- 当前窗口 ----------
+		// 每个按钮对应一个函数：调用哪句 API、成功失败各打什么，一眼看全
+		async function maximize() {
+			try {
+				await win.maximize();
+				log('win.maximize() → ok', 'ok');
+			} catch (e) {
+				// C++ 返回的错误是字符串，不是 Error 对象，所以取 message 前要判断一下
+				log(`win.maximize() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
 		}
 
-		async function call(label, fn) {
+		async function minimize() {
 			try {
-				await fn();
-				log(`${label} → ok`, 'ok');
+				await win.minimize();
+				log('win.minimize() → ok', 'ok');
 			} catch (e) {
-				log(`${label} → 失败：${e && e.message ? e.message : e}`, 'err');
+				log(`win.minimize() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function restore() {
+			try {
+				await win.restore();
+				log('win.restore() → ok', 'ok');
+			} catch (e) {
+				log(`win.restore() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// 函数名不叫 hide / show / close：它们会盖掉 window 上同名的原生方法
+		async function hideWin() {
+			try {
+				await win.hide();
+				log('win.hide() → ok', 'ok');
+			} catch (e) {
+				log(`win.hide() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function showWin() {
+			try {
+				await win.show();
+				log('win.show() → ok', 'ok');
+			} catch (e) {
+				log(`win.show() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function resize1200() {
+			try {
+				await win.resize(1200, 800);
+				log('win.resize(1200, 800) → ok', 'ok');
+			} catch (e) {
+				log(`win.resize(1200, 800) → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function resize800() {
+			try {
+				await win.resize(800, 600);
+				log('win.resize(800, 600) → ok', 'ok');
+			} catch (e) {
+				log(`win.resize(800, 600) → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function move100() {
+			try {
+				await win.move(100, 100);
+				log('win.move(100, 100) → ok', 'ok');
+			} catch (e) {
+				log(`win.move(100, 100) → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function closeWin() {
+			try {
+				await win.close();
+				log('win.close() → ok', 'ok');
+			} catch (e) {
+				log(`win.close() → 失败：${e && e.message ? e.message : e}`, 'err');
 			}
 		}
 
 		// ---------- 当前窗口事件 ----------
-		function toggleSubscribe() {
-			const btn = document.getElementById('btnSub');
-			if (offResize) {
-				offResize();
-				offResize = null;
-				btn.textContent = '订阅 win resize / move';
-				log('已取消订阅当前窗口事件');
-				return;
-			}
-			const offR = win.on('resize', (p) => log(`win resize → ${p.width}×${p.height}`, 'evt'));
-			const offM = win.on('move', (p) => log(`win move → (${p.x}, ${p.y})`, 'evt'));
-			offResize = () => { offR(); offM(); };
-			btn.textContent = '取消订阅 win resize / move';
+		// win.on 的返回值就是"取消订阅"函数，存起来，想停的时候调它
+		let offResize = null;
+		let offMove = null;
+
+		function subscribeWin() {
+			if (offResize) return; // 已订阅，不重复订阅
+			offResize = win.on('resize', p => log(`win resize → ${p.width}×${p.height}`, 'evt'));
+			offMove = win.on('move', p => log(`win move → (${p.x}, ${p.y})`, 'evt'));
 			log('已订阅当前窗口的 resize / move');
 		}
 
+		function unsubscribeWin() {
+			if (!offResize) return; // 没订阅过
+			offResize();
+			offMove();
+			offResize = offMove = null;
+			log('已取消订阅');
+		}
+
 		// ---------- 新窗口 ----------
+		// 本页面持有的另一个窗口对象，对它的所有操作都通过它进行
+		let win2 = null;
+
 		async function createWin() {
 			try {
 				win2 = await Win.create({
 					title: '新窗口',
 					size: { w: 640, h: 480 },
-					webview: { path: 'win.html' }
+					webview: { path: 'win.html' } // 新窗口加载本页面自己
 				});
-				log('Win.create → ok，新窗口已创建', 'ok');
-				for (const id of ['btnMax2', 'btnResize2', 'btnClose2', 'btnDestroy2', 'btnSub2']) {
-					document.getElementById(id).disabled = false;
+				// 创建成功后，这一组按钮才可用
+				for (const btn of document.querySelectorAll('#newWinButtons button')) {
+					btn.disabled = false;
 				}
+				log('Win.create → ok，新窗口已创建', 'ok');
 			} catch (e) {
 				log(`Win.create → 失败：${e && e.message ? e.message : e}`, 'err');
 			}
 		}
 
-		function toggleSubscribe2() {
-			const btn = document.getElementById('btnSub2');
-			if (offResize2) {
-				offResize2();
-				offResize2 = null;
-				btn.textContent = '订阅新窗口 resize';
-				log('已取消订阅新窗口事件');
-				return;
+		async function win2Maximize() {
+			try {
+				await win2.maximize();
+				log('win2.maximize() → ok', 'ok');
+			} catch (e) {
+				log(`win2.maximize() → 失败：${e && e.message ? e.message : e}`, 'err');
 			}
-			// 关键：事件由本页面持有的 win2 对象接收，而不是落在新窗口自己的 win 上
-			offResize2 = win2.on('resize', (p) => log(`win2 resize → ${p.width}×${p.height}`, 'evt'));
-			btn.textContent = '取消订阅新窗口 resize';
+		}
+
+		async function win2Resize() {
+			try {
+				await win2.resize(600, 400);
+				log('win2.resize(600, 400) → ok', 'ok');
+			} catch (e) {
+				log(`win2.resize(600, 400) → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function win2Close() {
+			try {
+				await win2.close();
+				log('win2.close() → ok', 'ok');
+			} catch (e) {
+				log(`win2.close() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function win2Destroy() {
+			try {
+				await win2.destroy();
+				log('win2.destroy() → ok', 'ok');
+			} catch (e) {
+				log(`win2.destroy() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		let offResize2 = null;
+
+		function subscribeWin2() {
+			if (offResize2) return;
+			offResize2 = win2.on('resize', p => log(`win2 resize → ${p.width}×${p.height}`, 'evt'));
 			log('已订阅新窗口的 resize');
 		}
 
+		function unsubscribeWin2() {
+			if (!offResize2) return;
+			offResize2();
+			offResize2 = null;
+			log('已取消订阅新窗口');
+		}
+
+		// ---------- 切换页面时清理 ----------
+		// 外壳（index.html）切换左侧菜单时会调这个函数：
+		// C++ 那边记着"要给这个 iframe 推事件"，不撤的话事件会推给一个已经消失的文档
+		function unsubscribeAll() {
+			unsubscribeWin();
+			unsubscribeWin2();
+		}
+
+		// ---------- 启动 ----------
 		window.addEventListener('load', () => {
 			log(`SDK 就绪：win 对象${typeof win === 'undefined' ? '缺失' : '已注入'}`);
 		});

@@ -41,6 +41,17 @@ const pending = new Map<number, { resolve: (value: unknown) => void; reject: (re
 const listeners = new Map<string, Set<Handler>>();
 let nextId = 1;
 
+/**
+ * 菜单点击的分发器，由 webwin.ts 启动时接上。
+ * 这里不能直接 import Menu：Menu extends Ipc，反向依赖会成环（且运行时可能踩到 TDZ）
+ */
+let dispatchMenuClick: ((msg: unknown) => void) | undefined;
+
+/** @internal 接上菜单点击的分发器 */
+export function setMenuClickDispatcher(fn: (msg: unknown) => void): void {
+	dispatchMenuClick = fn;
+}
+
 /** 订阅表按"窗口 + 事件名"分组：同一个事件可被多个页面订阅，彼此不冲突 */
 function keyOf(winId: number | null, name: string): string {
 	return `${winId === null ? '' : winId}:${name}`;
@@ -83,8 +94,14 @@ export function installChannel(): WebWinConfig | null {
 		const msg = raw as {
 			id?: number; ok?: boolean; data?: unknown; error?: WebWinError;
 			name?: string; payload?: unknown; winId?: number;
+			menu?: number; // 菜单项点击：既不是事件，也不是某个请求的响应
 		};
 
+		// 菜单项点击：靠 menu 字段认（menu = 菜单 id，item = 菜单项 id）
+		if (typeof msg.menu === 'number') {
+			dispatchMenuClick?.(msg);
+			return;
+		}
 		// 事件推送：无 id，靠 name 区分
 		if (typeof msg.name === 'string') {
 			dispatch(msg.winId ?? null, msg.name, msg.payload);
@@ -128,8 +145,10 @@ export class Ipc {
 		return Ipc.request<T>(this.type, method, params, this.winId, additionalObjects);
 	}
 
+	// 下面两个是**开发者用**的事件 API（`win.on(...)` / `os.on(...)`），所以是公开的；
+	// 上面几个通道方法才 protected —— 开发者不需要自己拼消息
 	/** 订阅事件；返回取消订阅的函数 */
-	protected on<T = unknown>(name: string, handler: Handler<T>): () => void {
+	on<T = unknown>(name: string, handler: Handler<T>): () => void {
 		const key = keyOf(this.winId, name);
 		let set = listeners.get(key);
 		if (!set) {
@@ -144,7 +163,7 @@ export class Ipc {
 	}
 
 	/** 取消订阅 */
-	protected off<T = unknown>(name: string, handler: Handler<T>): void {
+	off<T = unknown>(name: string, handler: Handler<T>): void {
 		const key = keyOf(this.winId, name);
 		const set = listeners.get(key);
 		if (!set) return;

@@ -13,19 +13,27 @@ using namespace winrt::Windows::Data::Json;
 class Win{
 	friend class Page;
 public:
+	// 订阅表里"与窗口无关"的事件用这个窗口 id（os 域这类单例能力）。
+	// 页面里 winId 为 null 的消息，C++ 侧也是这个值
+	static constexpr int NO_WINDOW = -1;
 	enum class SizeMode { Normal, Maximize, FullScreen, FullDesktop };
 	enum class PosMode { CenterScreen, Absolute };
 	static Win* Create(const JsonObject& config);
 	static Win* getFirst();
 	static Win* getById(int id);
 	int getId() const { return id; }
-	// 事件订阅表：(窗口 id, 事件名) -> 订阅它的页面。订阅后推，没人订阅就不发
-	static void subscribeEvent(int winId, const std::wstring& name, Page* page);
-	static void unsubscribeEvent(int winId, const std::wstring& name, Page* page);
+	// 事件订阅表：(窗口 id, 事件名) -> 订阅它的"文档"。
+	// 一个文档 = 页面 + 页面里的某个 iframe；frame 为空表示页面的顶级文档。
+	// 订阅后推，没人订阅就不发
+	static void subscribeEvent(int winId, const std::wstring& name, Page* page, ICoreWebView2Frame2* frame = nullptr);
+	static void unsubscribeEvent(int winId, const std::wstring& name, Page* page, ICoreWebView2Frame2* frame = nullptr);
+	// iframe 销毁：把它在订阅表里的条目全部摘掉，否则会往一个失效的 frame 推事件
+	static void unsubscribeFrame(Page* page, ICoreWebView2Frame2* frame);
 	// 把窗口事件推给所有订阅者（可能跨页面：B 窗口的事件要送到 A 页面）
 	static void fireEvent(int winId, const std::wstring& name, const JsonObject& payload);
-	// 处理 type=win 域的消息：按 method 分发到本域的具体动作
-	static void handleApi(const std::wstring& method, const JsonObject& params, int winId, Page* page, JsonObject& result);
+	// 处理 type=win 域的消息：按 method 分发到本域的具体动作。
+	// frame 是发消息的文档（iframe 或空=顶级文档），用于把结果送回原处
+	static void handleApi(const std::wstring& method, const JsonObject& params, int winId, Page* page, JsonObject& result, ICoreWebView2Frame2* frame = nullptr);
 	void createCtrl();
 	~Win();
 private:
@@ -73,5 +81,6 @@ private:
 	bool allowWindowOpen{ true };
 	bool allowRemoteSdk{ false }; // 是否允许把 SDK 注入到非应用自身来源的页面
 	bool webviewConfigured{ false }; // 是否读到了 webview 配置对象
+	int menuId{ -1 };  // 窗口右键菜单的菜单 id；-1 = 没挂（走浏览器默认的右键菜单）
 };
 

@@ -379,7 +379,7 @@ wv17->PostSharedBufferToScript(sharedBuffer.Get(),
    接收，不并入 `{ id, api, params }`。
 3. **共享内存的触发条件：由具体的 api 自己决定**（不按数据大小自动切换）。
 4. `webview.As<...>()` **失败时（Runtime 太旧）直接报错**，不做静默降级。
-5. **WebView2 Runtime 最低版本：暂时不定**。
+5. **WebView2 Runtime 最低版本：155.0.4283.45**（对应 SDK 1.0.4258.31）。
 
 ## 九、业界对照：Tauri / Electron
 

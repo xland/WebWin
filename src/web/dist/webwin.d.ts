@@ -5,6 +5,8 @@
  *   win            —— 当前窗口对象
  *   Win            —— 窗口类型，Win.create() 创建新窗口
  */
+import { Menu } from './Menu';
+import { Os } from './Os';
 import { Win } from './Win';
 declare global {
     interface Window {
@@ -12,5 +14,9 @@ declare global {
         win: Win;
         /** 窗口类型 */
         Win: typeof Win;
+        /** 系统级能力（全局单例，与窗口无关） */
+        os: Os;
+        /** 菜单类型 */
+        Menu: typeof Menu;
     }
 }

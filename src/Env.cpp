@@ -75,7 +75,9 @@ bool Env::checkRegKey(const HKEY& key, const std::wstring& subKey)
             versions.push_back(std::stoi(segment)); // 宽字符转整数，结尾处有非数字字符也没有问题
         }
     }
-    std::vector<int> minVersion = { 115, 0, 1901, 177 };
+    // 注意：这是**运行时浏览器版本**（对应 SDK 1.0.4258.31），不是 SDK 版本号。
+    // 两个口径别混：注册表 pv 里读出来的是前者
+    std::vector<int> minVersion = { 155, 0, 4283, 45 };
     if (versions < minVersion) return false;
     return true;
 }

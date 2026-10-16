@@ -11,6 +11,22 @@
 | **JSON 序列化 / 反序列化** | **WinRT `Windows.Data.Json`**（`winrt/Windows.Data.Json.h`） | **不引入任何外部 JSON 解析库** |
 | 语言标准 | C++20 | `/std:c++20`、`/utf-8` |
 
+## WebView2 版本约定
+
+**最低版本：1.0.4258.31**（暂定）。这是相当新的版本，因此：
+
+- 可以、也**应当**优先使用较新的 API（例如带 `WithRequestSourceKinds` 后缀的新接口）
+- **不使用实验性（Experimental）API** —— 它们可能随版本变更
+- 遇到"老接口已废弃"的情况，一律换到新接口
+
+> 注意：`Env::checkWebViewVersion()` 检查的是**运行时浏览器版本**，
+> 与这里的 SDK 版本是两个口径，别混：
+
+| 口径 | 值 | 出处 |
+| --- | --- | --- |
+| SDK 版本 | `1.0.4258.31` | 本节的约定 |
+| 运行时浏览器版本 | `155.0.4283.45` | `Env::checkRegKey()` 的 `minVersion` |
+
 ## WebView2 集成方式（重点决策）
 
 **以子窗口（Child HWND）方式集成 WebView2，不使用 UI Composition 技术集成。**
@@ -60,18 +76,23 @@
 2. 按 Chromium 窗口类名 `Chrome_WidgetWin_0` / `Chrome_RenderWidgetHostHWND`
    找到 WebView 的子窗口，投递 `WM_MOUSELEAVE`
 
-触发点：
+触发点（**每条路径只清一次**，不重复劳动）：
 
-- `win` 域里改变几何的方法：`maximize` / `minimize` / `restore` /
-  `hide` / `show` / `resize` / `move`
-- 原生 `WM_SIZE`：拖边缘、双击标题栏、Win+方向键分屏
-- 原生 `WM_SYSCOMMAND` 的 `SC_MINIMIZE`：标题栏最小化按钮 / 系统菜单 / 任务栏点击。
-  单独加它是因为 `WM_SIZE` 到达时窗口已经隐藏
-- `close` / `destroy` 之后窗口没了，不触发
+| 场景 | 谁来清 | 时机 |
+| --- | --- | --- |
+| `minimize` / `hide` | `handleApi` 对应分支 | 状态改变**之前** |
+| `show` / `move` | `handleApi` 对应分支 | 状态改变**之后** |
+| `maximize` / `restore` / `resize` | `WM_SIZE`（同步触发） | 状态改变之后 |
+| 原生最小化（标题栏 / 系统菜单 / 任务栏） | `WM_SYSCOMMAND` 的 `SC_MINIMIZE` | 窗口隐藏**之前** |
+| 拖边缘 / 双击标题栏 / Win+方向键 | `WM_SIZE` | 状态改变之后 |
+| `close` / `destroy` | 不清（窗口没了） | — |
 
-顺序有讲究：**`minimize` / `hide` 要在窗口状态改变之前清** ——
-窗口一旦隐藏，浏览器很可能不再处理鼠标消息，那时再发 `WM_MOUSELEAVE` 是白发。
-其余方法在状态改变之后清。
+两个"为什么"：
+
+- **`minimize` / `hide` 要提前**：窗口一旦隐藏，浏览器很可能不再处理鼠标消息，
+  那时再发 `WM_MOUSELEAVE` 是白发
+- **`WM_SIZE` 要跳过 `SIZE_MINIMIZED`**：最小化在 `WM_SYSCOMMAND` /
+  `handleApi` 里已经清过，且那两次时机更早、更可靠
 
 **JS 侧改样式无效（已实测排除）**：给元素设 `pointer-events: none`、
 或 `display` 切走再切回，都不能清掉 `:hover` —— 命中测试在浏览器进程，
@@ -80,6 +101,32 @@
 **风险**：窗口类名是 Chromium 内部实现，WebView2 未公开。
 所以实现成"尽力而为"：找不到就静默跳过，退化为未修复时的行为，不会更糟。
 Debug 下找不到会 `OutputDebugString` 提示。
+
+### iframe 与 C++ 的通信（额外兼容逻辑）
+
+**问题**：`CoreWebView2.WebMessageReceived` **只接收顶级文档**的消息 ——
+iframe 里调 `chrome.webview.postMessage`，C++ 收不到。
+`CoreWebView2.PostWebMessageAsJson` 同理，只发给顶级文档。
+
+**处置**：以"文档"为粒度收发消息（一个文档 = 页面 + 页面里的某个 iframe）：
+
+| 方向 | 顶级文档 | iframe |
+| --- | --- | --- |
+| 页面 → C++ | `CoreWebView2::WebMessageReceived` | `ICoreWebView2Frame2::add_WebMessageReceived` |
+| C++ → 页面 | `CoreWebView2::PostWebMessageAsJson` | `ICoreWebView2Frame2::PostWebMessageAsJson` |
+
+实现要点：
+
+- `ICoreWebView2_4::add_FrameCreated` 发现 iframe，逐个订阅它的消息与销毁事件
+- 结果与事件都发回**发消息 / 订阅的那个 frame**（`Page::postJson`）
+- 订阅表按"文档"记录（`Win::EventSub` = 页面 + frame）；
+  frame 销毁时由 `Win::unsubscribeFrame` 摘掉它的订阅，避免往失效 frame 推事件
+- SDK 注入用的 `AddScriptToExecuteOnDocumentCreated`
+  **对所有顶级文档和子框架导航生效**，所以 iframe 里同样有 `win` 对象，无需额外处理
+
+**顺带换掉一个废弃接口**：`AddWebResourceRequestedFilter` 已废弃，
+且只对主框架和同源 iframe 生效；已改为
+`AddWebResourceRequestedFilterWithRequestSourceKinds`（`ICoreWebView2_22`）。
 
 ## JSON 方案（重点决策）
 
