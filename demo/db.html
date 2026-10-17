@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin 本地数据库 API 演示</title>
+	<style>
+		body {
+			font-family: system-ui, "Microsoft YaHei", sans-serif;
+			margin: 0;
+			padding: 16px;
+			color: #222;
+		}
+
+		section {
+			background: #fff;
+			border: 1px solid #e3e3e6;
+			border-radius: 8px;
+			padding: 16px;
+			margin-bottom: 16px;
+		}
+
+		h2 {
+			font-size: 14px;
+			margin: 0 0 12px;
+			color: #444;
+		}
+
+		.note {
+			font-size: 12px;
+			color: #888;
+			margin: 8px 0 0;
+		}
+
+		button {
+			font: inherit;
+			font-size: 13px;
+			padding: 6px 12px;
+			margin: 0 8px 8px 0;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+			background: #fff;
+			cursor: pointer;
+		}
+
+		button:hover {
+			background: #f0f0f2;
+		}
+
+		code {
+			background: #f4f4f5;
+			border-radius: 3px;
+			padding: 1px 4px;
+		}
+	</style>
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section>
+		<h2>连接（Db.open / close）</h2>
+		<button onclick="openDefault()">打开默认库</button>
+		<button onclick="openNamed()">打开 demo.db</button>
+		<button onclick="closeDb()">关闭连接</button>
+		<div class="note">
+			<code>Db.open()</code> 是 async —— 连接是 C++ 里的 <code>sqlite3*</code>。
+			返回的是<b>实例</b>，连接 id 在实例内部，开发者不用管。
+			库文件落在应用数据目录的 <code>db/</code> 下（多垫一层是为了跟
+			WebView2 的浏览器数据隔开）。
+		</div>
+	</section>
+
+	<section>
+		<h2>建表（db.exec）</h2>
+		<button onclick="createTable()">建 note 表</button>
+		<div class="note">
+			<code>exec</code> 可以一次跑多条语句，适合建表和初始化。
+			它<b>不支持参数绑定</b> —— 需要绑定就用 run / get / all。
+		</div>
+	</section>
+
+	<section>
+		<h2>写入（db.run + 参数绑定）</h2>
+		<button onclick="insertArray()">插入（数组参数）</button>
+		<button onclick="insertNamed()">插入（具名参数）</button>
+		<div class="note">
+			两种都收：数组按位置绑 <code>?</code>，对象按名字绑
+			<code>:name</code> / <code>@name</code> / <code>$name</code>。
+			返回 <code>{ changes, lastInsertRowid }</code>。
+			<b>一律走绑定，不要自己拼 SQL 字符串。</b>
+		</div>
+	</section>
+
+	<section>
+		<h2>查询（db.get / db.all）</h2>
+		<button onclick="getOne()">查一行</button>
+		<button onclick="getMissing()">查一个不存在的（应回 null）</button>
+		<button onclick="allRows()">查全部</button>
+		<div class="note">
+			没查到时 <code>get</code> 返回 <code>null</code> 而<b>不报错</b> ——
+			查不到是正常结果，不是失败。
+		</div>
+	</section>
+
+	<section>
+		<h2>更新与删除（db.run）</h2>
+		<button onclick="updateRow()">全部 hits + 1</button>
+		<button onclick="deleteRow()">删掉 hits = 0 的行</button>
+		<div class="note">
+			看 <code>changes</code>：<code>UPDATE</code> / <code>DELETE</code>
+			的实际影响行数，条件没命中就是 0（也不是失败）。
+		</div>
+	</section>
+
+	<section>
+		<h2>类型映射</h2>
+		<button onclick="typesDemo()">查一行全类型</button>
+		<div class="note">
+			INTEGER / REAL → number，TEXT → string，BLOB → <b>base64 字符串</b>，NULL → <code>null</code>。
+			SQLite 的 INTEGER 是 64 位的，转成 JS number 后超过 2^53 会丢精度。
+		</div>
+	</section>
+
+	<section>
+		<h2>事务（db.exec 多语句）</h2>
+		<button onclick="transCommit()">BEGIN … COMMIT</button>
+		<button onclick="transRollback()">BEGIN … ROLLBACK</button>
+		<div class="note">
+			没有专门的 <code>transaction</code> API：连接是长住的，用
+			<code>exec('BEGIN')</code> / <code>exec('COMMIT')</code> 手写即可。
+			<b>注意</b>：每次调用都是一次异步往返，BEGIN 和 COMMIT 之间会漏进别的操作，
+			事务期间别并发操作同一个连接。
+		</div>
+	</section>
+
+	<section>
+		<h2>错误处理与安全</h2>
+		<button onclick="badSql()">执行一句错 SQL</button>
+		<button onclick="attachBlocked()">尝试 ATTACH（应被拒）</button>
+		<div class="note">
+			错误里带 SQLite 的 <code>errmsg</code>，不是光秃秃的错误码。
+			<code>ATTACH</code> 被禁：否则任意 SQL 能把磁盘上别的库挂进来，
+			<code>Db.open</code> 那边的路径约定就形同虚设。
+		</div>
+	</section>
+
+	<script>
+		// 各按钮共用同一个连接：Db 实例建一次，后面都用它的实例方法
+		let db = null;
+
+		function fail(what, e) {
+			log(`${what} → 失败：${e && e.message ? e.message : e}`, 'err');
+		}
+
+		/** 没连就先连上 demo.db，省得每个按钮都写一遍 */
+		async function ensureDb() {
+			if (!db) {
+				db = await Db.open('demo.db');
+				log('自动建立连接（demo.db）', 'evt');
+			}
+			return db;
+		}
+
+		async function openDefault() {
+			try {
+				if (db) await db.close().catch(() => { });
+				db = await Db.open();
+				log('Db.open() → 已连接默认库（db/webwin.db）', 'ok');
+			} catch (e) { fail('Db.open()', e); }
+		}
+
+		async function openNamed() {
+			try {
+				if (db) await db.close().catch(() => { });
+				db = await Db.open('demo.db');
+				log("Db.open('demo.db') → 已连接", 'ok');
+			} catch (e) { fail('Db.open(demo.db)', e); }
+		}
+
+		async function closeDb() {
+			try {
+				if (!db) { log('当前没有连接', 'evt'); return; }
+				await db.close();
+				db = null;
+				log('close() → 已关闭，文件锁释放', 'ok');
+			} catch (e) { fail('close', e); }
+		}
+
+		async function createTable() {
+			try {
+				const d = await ensureDb();
+				await d.exec(`
+					CREATE TABLE IF NOT EXISTS note (
+						id    INTEGER PRIMARY KEY,
+						title TEXT NOT NULL,
+						body  TEXT,
+						hits  INTEGER DEFAULT 0
+					)`);
+				log('exec(CREATE TABLE) → 建表完成（已存在则跳过）', 'ok');
+			} catch (e) { fail('exec', e); }
+		}
+
+		async function insertArray() {
+			try {
+				const d = await ensureDb();
+				const r = await d.run('INSERT INTO note (title, body) VALUES (?, ?)', ['数组参数', '用 ? 占位，按顺序绑']);
+				log(`run(数组) → 新行 id=${r.lastInsertRowid}，影响 ${r.changes} 行`, 'ok');
+			} catch (e) { fail('run(数组)', e); }
+		}
+
+		async function insertNamed() {
+			try {
+				const d = await ensureDb();
+				const r = await d.run('INSERT INTO note (title, body) VALUES (:t, :b)', { t: '具名参数', b: '用 :name 占位' });
+				log(`run(具名) → 新行 id=${r.lastInsertRowid}，影响 ${r.changes} 行`, 'ok');
+			} catch (e) { fail('run(具名)', e); }
+		}
+
+		async function getOne() {
+			try {
+				const d = await ensureDb();
+				const row = await d.get('SELECT * FROM note ORDER BY id DESC LIMIT 1');
+				log(`get() → ${JSON.stringify(row)}`, 'ok');
+			} catch (e) { fail('get', e); }
+		}
+
+		async function getMissing() {
+			try {
+				const d = await ensureDb();
+				const row = await d.get('SELECT * FROM note WHERE id = ?', [-1]);
+				log(`get(查不到) → ${row === null ? 'null（不报错）' : JSON.stringify(row)}`, 'evt');
+			} catch (e) { fail('get', e); }
+		}
+
+		async function allRows() {
+			try {
+				const d = await ensureDb();
+				const rows = await d.all('SELECT * FROM note ORDER BY id');
+				log(`all() → ${rows.length} 行\n  ${rows.map((r) => JSON.stringify(r)).join('\n  ')}`, 'ok');
+			} catch (e) { fail('all', e); }
+		}
+
+		async function updateRow() {
+			try {
+				const d = await ensureDb();
+				const r = await d.run('UPDATE note SET hits = hits + 1');
+				log(`run(UPDATE) → 影响 ${r.changes} 行`, 'ok');
+			} catch (e) { fail('run(UPDATE)', e); }
+		}
+
+		async function deleteRow() {
+			try {
+				const d = await ensureDb();
+				const r = await d.run('DELETE FROM note WHERE hits = ?', [0]);
+				log(`run(DELETE) → 影响 ${r.changes} 行（没命中就是 0，也不是失败）`, 'ok');
+			} catch (e) { fail('run(DELETE)', e); }
+		}
+
+		async function typesDemo() {
+			try {
+				const d = await ensureDb();
+				const row = await d.get("SELECT 42 AS i, 3.14 AS r, '文本' AS t, X'010203' AS b, NULL AS n");
+				log(`类型映射 → ${JSON.stringify(row)}\n  b 是 BLOB：字节 01 02 03 编成 base64 "AQID"`, 'ok');
+			} catch (e) { fail('类型映射', e); }
+		}
+
+		async function transCommit() {
+			try {
+				const d = await ensureDb();
+				await d.exec('BEGIN');
+				await d.run('INSERT INTO note (title) VALUES (?)', ['事务内插入-保留']);
+				await d.exec('COMMIT');
+				log('事务 → COMMIT，插入已生效（再点"查全部"能看到）', 'ok');
+			} catch (e) { fail('事务(COMMIT)', e); }
+		}
+
+		async function transRollback() {
+			try {
+				const d = await ensureDb();
+				await d.exec('BEGIN');
+				await d.run('INSERT INTO note (title) VALUES (?)', ['事务内插入-回滚']);
+				await d.exec('ROLLBACK');
+				const row = await d.get('SELECT * FROM note WHERE title = ?', ['事务内插入-回滚']);
+				log(`事务 → ROLLBACK，回滚后还查得到吗：${row === null ? '查不到（已回滚）' : '仍在 —— 回滚没生效'}`, 'ok');
+			} catch (e) { fail('事务(ROLLBACK)', e); }
+		}
+
+		async function badSql() {
+			try {
+				const d = await ensureDb();
+				await d.exec('SELEC 1'); // 故意写错
+				log('居然成功了 —— 不该发生', 'err');
+			} catch (e) {
+				// 这里失败才是预期结果，所以用 evt 色而不是红色
+				log(`错误示例 → 如期失败：${e && e.message ? e.message : e}`, 'evt');
+			}
+		}
+
+		async function attachBlocked() {
+			try {
+				const d = await ensureDb();
+				await d.exec("ATTACH DATABASE 'C:\\secret.db' AS x");
+				log('ATTACH 成功了 —— 这是安全问题，该修', 'err');
+			} catch (e) {
+				log(`安全加固 → ATTACH 被拒：${e && e.message ? e.message : e}`, 'evt');
+			}
+		}
+
+		// ---------- 切换页面时清理 ----------
+		// 外壳（index.html）切换左侧菜单时会调这个函数。本页没有事件订阅，
+		// 但外壳是用 ?. 调的，留着空实现以免那边报"不是函数"。
+		// 注意：连接不在这里关 —— 外壳切换页面只是换 iframe 的 src，
+		// 页面销毁时 C++ 会自动清理本页开的连接
+		function unsubscribeAll() { }
+	</script>
+</body>
+
+</html>
