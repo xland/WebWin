@@ -1,0 +1,84 @@
+// 把 tsc 生成的多个 .d.ts 合并成单个 dist/WebWin.d.ts
+//
+// 产物是**一个全局声明文件**（合并后不含任何 import / export），
+// 开发者只需 /// <reference path="./WebWin.d.ts" /> 就能拿到全部类型提示，
+// 不必引一堆文件 —— 交付口径见 arch/00-overview.md：SDK = exe + .d.ts
+//
+// 输入：dist/types/*.d.ts（tsconfig 的 outDir，中间产物，合并完删掉）
+// 输出：dist/WebWin.d.ts
+import { readdir, readFile, writeFile, mkdir, rm } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(here, '..');
+const srcDir = path.join(root, 'dist', 'types');
+const outFile = path.join(root, 'dist', 'WebWin.d.ts');
+
+// 输出顺序：Ipc 是基类放最前，各域随后，global 块放最后
+const order = ['Ipc', 'App', 'Menu', 'Os', 'Win', 'Display', 'Dialog', 'WebWin'];
+
+/** 去掉 declare global { ... } 这一层，让内容回到顶层（合并后大家都在同一作用域） */
+function unwrapGlobal(text)
+{
+	const marker = 'declare global';
+	const start = text.indexOf(marker);
+	if (start < 0) return text;
+
+	let i = start + marker.length;
+	while (i < text.length && /\s/.test(text[i])) ++i;
+	if (text[i] !== '{') return text;
+
+	let depth = 0;
+	const open = i;
+	for (; i < text.length; ++i)
+	{
+		if (text[i] === '{') ++depth;
+		else if (text[i] === '}' && --depth === 0) break;
+	}
+	if (depth !== 0) return text; // 括号不匹配就原样返回，宁可不改也不改坏
+
+	return text.slice(0, start) + text.slice(open + 1, i) + text.slice(i + 1);
+}
+
+const files = await readdir(srcDir).catch(() => []);
+const parts = [];
+for (const name of order)
+{
+	const file = `${name}.d.ts`;
+	if (!files.includes(file)) continue;
+
+	const text = await readFile(path.join(srcDir, file), 'utf8')
+		.then((t) => t
+			// 合并后大家都在同一个文件里，模块间的 import 全部作废
+			.replace(/^[ \t]*import\s+[^;]*;[ \t]*$/gm, '')
+			.replace(/^([ \t]*)export\s+/gm, '$1')
+		)
+		.then(unwrapGlobal);
+
+	const body = text.trim();
+	if (body) parts.push(`// ---- ${name} ----\n${body}`);
+}
+
+const banner = [
+	'/**',
+	' * WebWin JS SDK —— 类型声明（自动生成，请勿手改）',
+	' *',
+	' * 生成方式：在 src/web 下执行 `npm run types`',
+	' * 它由 tsc 输出的多个 .d.ts 合并而来，目的是让开发者只引一个文件。',
+	' *',
+	' * 用法（任选其一）：',
+	' *   1. 在本文件旁 `/// <reference path="./WebWin.d.ts" />`',
+	' *   2. 把本文件加进你工程的 tsconfig 的 include / files',
+	' *',
+	' * 框架注入到页面里的全局对象：',
+	' *   win（当前窗口）· Win（窗口类型）· os · app · display · dialog · Menu',
+	' */',
+	'',
+].join('\n');
+
+await mkdir(path.dirname(outFile), { recursive: true });
+await writeFile(outFile, `${banner}${parts.join('\n\n')}\n`);
+await rm(srcDir, { recursive: true, force: true });
+
+console.log(`已合并 ${parts.length} 个声明 -> dist/WebWin.d.ts`);

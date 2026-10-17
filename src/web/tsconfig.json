@@ -5,8 +5,8 @@
     "strict": true,
     "declaration": true,
     "emitDeclarationOnly": true,
-    "outDir": "dist",
+    "outDir": "dist/types",
     "types": []
   },
-  "files": ["webwin.ts"]
+  "files": ["src/WebWin.ts"]
 }

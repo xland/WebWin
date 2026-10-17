@@ -1,4 +1,4 @@
-import { Ipc } from './Ipc';
+import { Ipc, addMessageHook } from './Ipc';
 
 /** 菜单项类型；不写就是 normal */
 export type MenuItemType = 'normal' | 'radio' | 'checkbox' | 'separator';
@@ -123,3 +123,18 @@ export class Menu extends Ipc {
 		});
 	}
 }
+
+/**
+ * 菜单项点击是**通道层面**要认领的一种下行消息：
+ * 它既不是框架事件（没有 name，也不按窗口分发），
+ * 也不对应某次 API 请求（没有 id），只有本域认得 { menu, item } 这组字段。
+ *
+ * 所以在这里登记钩子自己领走 —— 通道那边不需要知道菜单的存在，
+ * 以后加别的域也照这个来，都不用回去改 Ipc
+ */
+addMessageHook((msg) =>
+{
+	if (typeof msg.menu !== 'number') return false;
+	Menu.dispatch(msg);
+	return true;
+});

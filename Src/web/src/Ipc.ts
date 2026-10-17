@@ -66,14 +66,44 @@ const listeners = new Map<string, Set<Handler>>();
 let nextId = 1;
 
 /**
- * 菜单点击的分发器，由 webwin.ts 启动时接上。
- * 这里不能直接 import Menu：Menu extends Ipc，反向依赖会成环（且运行时可能踩到 TDZ）
+ * 下行消息的通用形状。通道自己只认响应和事件两种，
+ * 其余字段交给各能力域解释（比如菜单点击的 menu / item）
  */
-let dispatchMenuClick: ((msg: unknown) => void) | undefined;
+export type DownstreamMessage = {
+	/** API 响应：与发起的那次调用对应 */
+	id?: number;
+	ok?: boolean;
+	data?: unknown;
+	error?: WebWinError;
+	/** 框架事件：无 id，靠 name 区分 */
+	name?: string;
+	payload?: unknown;
+	/** 消息所属窗口；null = 与窗口无关 */
+	winId?: number;
+	/**
+	 * 其余字段留给各能力域自己解释 —— 通道不认识它们，只原样往下传。
+	 * 菜单点击就靠 `menu` / `item` 这两个字段认领（见 Menu.ts 末尾的钩子）
+	 */
+	[key: string]: unknown;
+};
 
-/** @internal 接上菜单点击的分发器 */
-export function setMenuClickDispatcher(fn: (msg: unknown) => void): void {
-	dispatchMenuClick = fn;
+/**
+ * 认领钩子：返回 true 表示"这条我处理了"，接收循环随即停止，
+ * 不再走响应 / 事件的常规处理
+ */
+export type MessageHook = (msg: DownstreamMessage) => boolean;
+
+const hooks: MessageHook[] = [];
+
+/**
+ * @internal 能力域登记"某种下行消息我来认领"。
+ *
+ * 方向是**让域来登记**、而不是通道去 import 各域：
+ * 域都 `extends Ipc`，通道反过来依赖它们会成环（且运行时可能踩到 TDZ）。
+ * 好处是通道不认识任何具体的域，加新域只动它自己那个文件
+ */
+export function addMessageHook(hook: MessageHook): void {
+	hooks.push(hook);
 }
 
 /** 订阅表按"窗口 + 事件名"分组：同一个事件可被多个页面订阅，彼此不冲突 */
@@ -115,17 +145,13 @@ export function installChannel(): WebWinConfig | null {
 	ch.addEventListener('message', (event) => {
 		const raw = typeof event.data === 'string' ? parse(event.data) : event.data;
 		if (!raw || typeof raw !== 'object') return;
-		const msg = raw as {
-			id?: number; ok?: boolean; data?: unknown; error?: WebWinError;
-			name?: string; payload?: unknown; winId?: number;
-			menu?: number; // 菜单项点击：既不是事件，也不是某个请求的响应
-		};
+		const msg = raw as DownstreamMessage;
 
-		// 菜单项点击：靠 menu 字段认（menu = 菜单 id，item = 菜单项 id）
-		if (typeof msg.menu === 'number') {
-			dispatchMenuClick?.(msg);
-			return;
-		}
+		// 先让各能力域认领。像菜单项点击（{ menu, item }）这种既不是事件、
+		// 也不对应某次请求的，只有菜单域自己认得 —— 由它登记的钩子领走。
+		// 通道因此不必"认识"任何具体的域
+		for (const hook of hooks) if (hook(msg)) return;
+
 		// 事件推送：无 id，靠 name 区分
 		if (typeof msg.name === 'string') {
 			dispatch(msg.winId ?? null, msg.name, msg.payload);
