@@ -7,6 +7,7 @@
 
 #include "Win.h"
 #include "App.h"
+#include "Db.h"
 #include "Dialog.h"
 #include "Env.h"
 #include "Json.h"
@@ -471,6 +472,7 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		}
 		Menu::removeByPage(winObj->page.get()); // 本页建的菜单一起销毁：点击已无处可推
 		Dialog::removeByPage(winObj->page.get()); // 本页排着的对话框请求：窗口没了就弹不了
+		Db::removeByPage(winObj->page.get());     // 本页开的数据库连接一起关：不然文件锁一直占着
 		removeWin(winObj);
 		if (App::get()->getQuitWhenNoWindow() && winDic.empty()) PostQuitMessage(0);
 		return 0;

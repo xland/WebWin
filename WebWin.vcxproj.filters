@@ -51,6 +51,9 @@
     <ClCompile Include="src\Dialog.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="src\Db.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -87,6 +90,9 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="src\Dialog.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Db.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

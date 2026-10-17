@@ -19,3 +19,12 @@ std::wstring Util::utf8ToWide(const std::string& utf8)
 	MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), wide.data(), size);
 	return wide;
 }
+
+std::string Util::wideToUtf8(const std::wstring& wide)
+{
+	if (wide.empty()) return {};
+	auto size = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+	std::string utf8(size, '\0');
+	WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), utf8.data(), size, nullptr, nullptr);
+	return utf8;
+}

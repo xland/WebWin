@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include "App.h"
+#include "Db.h"
 #include "Dialog.h"
 #include "Display.h"
 #include "Env.h"
@@ -232,6 +233,7 @@ HRESULT Page::onFrameDestroyed(ICoreWebView2Frame* sender, IUnknown* args)
     auto frame2 = asFrame2(sender);
     Win::unsubscribeFrame(this, frame2.Get());
     Menu::removeByFrame(this, frame2.Get()); // 这个 iframe 建的菜单一起销毁
+    Db::removeByFrame(this, frame2.Get());
     std::erase_if(frames, [&](const ComPtr<ICoreWebView2Frame2>& item) { return item.Get() == frame2.Get(); });
     return S_OK;
 }
@@ -257,6 +259,7 @@ void Page::handleMessage(const wchar_t* json, ICoreWebView2Frame2* frame)
     else if (type == L"os") Os::handleApi(method, params, this, result, frame);
     else if (type == L"menu") Menu::handleApi(method, params, this, result, frame);
     else if (type == L"app") App::handleApi(method, params, this, result, frame);
+    else if (type == L"db") Db::handleApi(method, params, this, result, frame);
     else if (type == L"display") sent = Display::handleApi(method, params, this, result, frame);
     // 弹框不能当场执行（回调里开模态循环会被 Runtime 判重入），
     // 所以 handleApi 返回"是否已自行发回响应"，由它决定要不要再发一次信封

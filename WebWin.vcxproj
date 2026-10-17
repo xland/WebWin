@@ -103,6 +103,7 @@
     <ClCompile Include="src\Menu.cpp" />
     <ClCompile Include="src\Display.cpp" />
     <ClCompile Include="src\Dialog.cpp" />
+    <ClCompile Include="src\Db.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -119,6 +120,7 @@
     <ClInclude Include="src\Menu.h" />
     <ClInclude Include="src\Display.h" />
     <ClInclude Include="src\Dialog.h" />
+    <ClInclude Include="src\Db.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\Res.rc" />

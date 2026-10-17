@@ -45,7 +45,14 @@ export class Menu extends Ipc {
 
 	protected type = Menu.domain;
 
-	/** C++ 分配的菜单 id */
+	/**
+	 * C++ 分配的菜单 id。
+	 *
+	 * @internal 不是给开发者用的。之所以还得暴露，是因为 `Win.setContextMenu`
+	 * 要把它交给 C++（同一包内的类之间要传）。想彻底私有就得让 Menu 反过来替
+	 * Win 组装整个上行消息，为这点好处引入双向依赖不划算 —— 沿用本项目
+	 * `@internal` 的约定（同 Menu.dispatch）即可。
+	 */
 	readonly id: number;
 
 	private readonly handlers: Map<string, (info: MenuClickInfo) => void>;

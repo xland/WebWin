@@ -196,7 +196,14 @@ declare class Menu extends Ipc {
     /** 菜单 id → 实例：点击消息按 id 找回实例，再按 item id 找回回调 */
     private static readonly registry;
     protected type: string;
-    /** C++ 分配的菜单 id */
+    /**
+     * C++ 分配的菜单 id。
+     *
+     * @internal 不是给开发者用的。之所以还得暴露，是因为 `Win.setContextMenu`
+     * 要把它交给 C++（同一包内的类之间要传）。想彻底私有就得让 Menu 反过来替
+     * Win 组装整个上行消息，为这点好处引入双向依赖不划算 —— 沿用本项目
+     * `@internal` 的约定（同 Menu.dispatch）即可。
+     */
     readonly id: number;
     private readonly handlers;
     private constructor();
@@ -457,7 +464,9 @@ declare class Dialog extends Ipc {
  *   Win            —— 窗口类型，Win.create() 创建新窗口
  *   os / app / display / dialog —— 与窗口无关的全局单例能力
  *   （dialog 虽是单例，但绑在当前窗口上：弹出来的框模态到当前窗口）
+ *   Menu / Db   —— 需要自己建实例的类型（Menu.create() / Db.open()）
  */
+
 
 
 
@@ -480,4 +489,6 @@ declare class Dialog extends Ipc {
         dialog: Dialog;
         /** 菜单类型 */
         Menu: typeof Menu;
+        /** 数据库类型：Db.open() 建连接，实例上再跑 SQL */
+        Db: typeof Db;
     }
