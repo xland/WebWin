@@ -19,7 +19,7 @@ const srcDir = path.join(root, 'dist', 'types');
 const outFile = path.join(root, 'dist', 'webwin.d.ts');
 
 // 输出顺序：Ipc 是基类放最前，各域随后，global 块放最后
-const order = ['Ipc', 'App', 'Menu', 'Os', 'Win', 'Display', 'Dialog', 'WebWin'];
+const order = ['Ipc', 'App', 'Menu', 'Os', 'Win', 'Display', 'Dialog', 'Db', 'WebWin'];
 
 /** 去掉 declare global { ... } 这一层，让内容回到顶层（合并后大家都在同一作用域） */
 function unwrapGlobal(text)
@@ -63,6 +63,17 @@ for (const name of order)
 	if (body) parts.push(`// ---- ${name} ----\n${body}`);
 }
 
+// 兜底：order 里漏写的域会被**静默丢掉** —— 构建照常成功、exit 也是 0，
+// 只是那个域的类型凭空消失（加 Db 域时就踩到了一次，很难察觉）。
+// 宁可让构建失败并指名道姓，也不要悄悄少一块类型
+const known = new Set(order.map((name) => `${name}.d.ts`));
+const missed = files.filter((f) => f.endsWith('.d.ts') && !known.has(f));
+if (missed.length)
+{
+	console.error(`bundle-dts: 这些 .d.ts 没写进 order，会被丢掉：${missed.join(', ')}`);
+	process.exit(1);
+}
+
 const banner = [
 	'/**',
 	' * WebWin JS SDK —— 类型声明（自动生成，请勿手改）',
@@ -75,7 +86,8 @@ const banner = [
 	' *   2. 把本文件加进你工程的 tsconfig 的 include / files',
 	' *',
 	' * 框架注入到页面里的全局对象：',
-	' *   win（当前窗口）· Win（窗口类型）· os · app · display · dialog · Menu',
+	' *   win（当前窗口）· Win（窗口类型）· os · app · display · dialog',
+	' * 需要自己建实例的类型：Menu · Db',
 	' */',
 	'',
 ].join('\n');
