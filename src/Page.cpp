@@ -150,12 +150,6 @@ void Page::loadPage()
 	webview->NavigateToString(html.empty() ? L"<html><body>no config</body></html>" : html.c_str());
 }
 
-void Page::emit(const JsonObject& eventData)
-{
-    auto eventDataStr = eventData.Stringify(); // hstring：直接拿它发，不必再拷一份 std::wstring
-    webview->PostWebMessageAsJson(eventDataStr.c_str());
-}
-
 HWND Page::getHwnd() const
 {
     return win->hwnd;

@@ -1,11 +1,14 @@
-// 把 tsc 生成的多个 .d.ts 合并成单个 dist/WebWin.d.ts
+// 把 tsc 生成的多个 .d.ts 合并成单个 dist/webwin.d.ts
 //
 // 产物是**一个全局声明文件**（合并后不含任何 import / export），
-// 开发者只需 /// <reference path="./WebWin.d.ts" /> 就能拿到全部类型提示，
+// 开发者只需 /// <reference path="./webwin.d.ts" /> 就能拿到全部类型提示，
 // 不必引一堆文件 —— 交付口径见 arch/00-overview.md：SDK = exe + .d.ts
 //
+// 输出文件名刻意用小写：它跟 dist/webwin.js 是一对，
+// TypeScript 见到同名 .d.ts 才会自动给 .js 补上类型
+//
 // 输入：dist/types/*.d.ts（tsconfig 的 outDir，中间产物，合并完删掉）
-// 输出：dist/WebWin.d.ts
+// 输出：dist/webwin.d.ts
 import { readdir, readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -13,7 +16,7 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const srcDir = path.join(root, 'dist', 'types');
-const outFile = path.join(root, 'dist', 'WebWin.d.ts');
+const outFile = path.join(root, 'dist', 'webwin.d.ts');
 
 // 输出顺序：Ipc 是基类放最前，各域随后，global 块放最后
 const order = ['Ipc', 'App', 'Menu', 'Os', 'Win', 'Display', 'Dialog', 'WebWin'];
@@ -68,7 +71,7 @@ const banner = [
 	' * 它由 tsc 输出的多个 .d.ts 合并而来，目的是让开发者只引一个文件。',
 	' *',
 	' * 用法（任选其一）：',
-	' *   1. 在本文件旁 `/// <reference path="./WebWin.d.ts" />`',
+	' *   1. 在本文件旁 `/// <reference path="./webwin.d.ts" />`',
 	' *   2. 把本文件加进你工程的 tsconfig 的 include / files',
 	' *',
 	' * 框架注入到页面里的全局对象：',
@@ -81,4 +84,4 @@ await mkdir(path.dirname(outFile), { recursive: true });
 await writeFile(outFile, `${banner}${parts.join('\n\n')}\n`);
 await rm(srcDir, { recursive: true, force: true });
 
-console.log(`已合并 ${parts.length} 个声明 -> dist/WebWin.d.ts`);
+console.log(`已合并 ${parts.length} 个声明 -> dist/webwin.d.ts`);

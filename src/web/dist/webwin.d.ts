@@ -5,7 +5,7 @@
  * 它由 tsc 输出的多个 .d.ts 合并而来，目的是让开发者只引一个文件。
  *
  * 用法（任选其一）：
- *   1. 在本文件旁 `/// <reference path="./WebWin.d.ts" />`
+ *   1. 在本文件旁 `/// <reference path="./webwin.d.ts" />`
  *   2. 把本文件加进你工程的 tsconfig 的 include / files
  *
  * 框架注入到页面里的全局对象：

@@ -15,7 +15,6 @@ class Page
 	friend class Win; // Win::fireEvent 需要把事件推给订阅页面
 public:
 	Page(Win* win, const ComPtr<ICoreWebView2>& webview);
-	void emit(const JsonObject& eventData);
 	/**
 	 * 下行发消息：有 frame 就只发给那个 iframe，否则发给顶级文档。
 	 *
