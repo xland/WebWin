@@ -19,6 +19,12 @@ export interface WebWinConfig {
 	origin: string;
 	/** 当前窗口的 id，由 C++ 注入；SDK 据此构造全局 win 对象 */
 	winId?: number;
+	/**
+	 * 应用基准目录（package.json 所在目录），由 C++ 注入。
+	 * `path.resolve()` / `path.relative()` 拿它当基准 —— 框架里没有 cwd 概念
+	 * （全库不调 GetCurrentDirectory），这里取代 Node 的 process.cwd()
+	 */
+	appPath?: string;
 }
 
 export type Payload = unknown;

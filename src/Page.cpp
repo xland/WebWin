@@ -106,6 +106,9 @@ void Page::injectSdk()
 	config.SetNamedValue(L"allowRemote", JsonValue::CreateBooleanValue(win->allowRemoteSdk));
 	config.SetNamedValue(L"origin", JsonValue::CreateStringValue(win->getPageOrigin()));
 	config.SetNamedValue(L"winId", JsonValue::CreateNumberValue(win->getId())); // 当前窗口 id
+	// 应用基准目录（package.json 所在目录）：JS 的 path.resolve() / relative() 拿它当基准。
+	// 框架里没有 cwd 概念（全库不调 GetCurrentDirectory），这里取代 Node 的 process.cwd()
+	config.SetNamedValue(L"appPath", JsonValue::CreateStringValue(App::getPackageBaseDir().wstring()));
 	auto script = L"window.__webwinConfig__=" + std::wstring{ config.Stringify().c_str() } + L";\n" + Util::utf8ToWide(js);
 	webview->AddScriptToExecuteOnDocumentCreated(script.c_str(), nullptr);
 }
@@ -256,20 +259,42 @@ void Page::handleMessage(const wchar_t* json, ICoreWebView2Frame2* frame)
     // 只按能力域分发：Page 认识域，具体方法交给各域自己处理。
     // 否则所有能力的方法都会堆在这一个文件里，加一个能力就膨胀一次
     bool sent = false; // 能力域已自行把响应发回（目前只有走共享内存的 screenshot）
-    if (type == L"win") Win::handleApi(method, params, winId, this, result, frame);
-    else if (type == L"os") Os::handleApi(method, params, this, result, frame);
-    else if (type == L"menu") Menu::handleApi(method, params, this, result, frame);
-    else if (type == L"app") App::handleApi(method, params, this, result, frame);
-    else if (type == L"db") Db::handleApi(method, params, this, result, frame);
-    else if (type == L"tray") Tray::handleApi(method, params, this, result, frame);
-    else if (type == L"display") sent = Display::handleApi(method, params, this, result, frame);
-    // 弹框不能当场执行（回调里开模态循环会被 Runtime 判重入），
-    // 所以 handleApi 返回"是否已自行发回响应"，由它决定要不要再发一次信封
-    else if (type == L"dialog") sent = Dialog::handleApi(method, params, this, result, frame);
-    else {
-        // 未知域回一个 error：前端 invoke 会 reject，而不是静默 resolve(undefined)。
-        // 之前"原生侧改了却忘了重新编译 exe"就是被静默吞掉的，补上这条能直接暴露出来
-        Json::setError(result, L"unknown type: " + type);
+    try
+    {
+        if (type == L"win") Win::handleApi(method, params, winId, this, result, frame);
+        else if (type == L"os") Os::handleApi(method, params, this, result, frame);
+        else if (type == L"menu") Menu::handleApi(method, params, this, result, frame);
+        else if (type == L"app") App::handleApi(method, params, this, result, frame);
+        else if (type == L"db") Db::handleApi(method, params, this, result, frame);
+        else if (type == L"tray") Tray::handleApi(method, params, this, result, frame);
+        else if (type == L"display") sent = Display::handleApi(method, params, this, result, frame);
+        // 弹框不能当场执行（回调里开模态循环会被 Runtime 判重入），
+        // 所以 handleApi 返回"是否已自行发回响应"，由它决定要不要再发一次信封
+        else if (type == L"dialog") sent = Dialog::handleApi(method, params, this, result, frame);
+        else {
+            // 未知域回一个 error：前端 invoke 会 reject，而不是静默 resolve(undefined)。
+            // 之前"原生侧改了却忘了重新编译 exe"就是被静默吞掉的，补上这条能直接暴露出来
+            Json::setError(result, L"unknown type: " + type);
+        }
+    }
+    // 兜底：整个 C++ 侧此前一个 catch 都没有，域处理器里抛出的异常会穿过
+    // onMsgReceived（COM 回调）直接 std::terminate —— 整个进程崩掉。
+    // 这里转成 error 响应发回去：JS 那边就是 promise reject，
+    // 跟普通的"操作失败"一个待遇，进程照常活着
+    catch (const winrt::hresult_error& e)
+    {
+        sent = false; // 共享内存那条路可能发了一半，信封还是得补上，否则调用方一直挂着
+        Json::setError(result, L"C++ 抛出 WinRT 异常：" + std::wstring(e.message().c_str()));
+    }
+    catch (const std::exception& e)
+    {
+        sent = false;
+        Json::setError(result, L"C++ 抛异常：" + Util::utf8ToWide(e.what()));
+    }
+    catch (...)
+    {
+        sent = false;
+        Json::setError(result, L"C++ 抛出未知异常");
     }
 
     // 再发一次 JSON 信封会让页面那头同一次调用被 resolve 两遍，所以跳过

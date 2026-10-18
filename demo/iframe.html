@@ -54,16 +54,15 @@
 <body>
 	<section>
 		<h2>子页面（iframe）与窗口通信</h2>
+		<button onclick="resize700()">win.resize(700, 520)</button>
+		<button onclick="subscribe()">订阅 win resize</button>
+		<button onclick="unsubscribe()">取消订阅</button>
 		<div class="note">
 			中间这一栏本身就是 iframe —— <b>本页正跑在它里面</b>，
 			却和顶级页面一样能直接用 <code>win</code> 跟 C++ 通信：
 			调用照样生效，订阅的事件也照样收得到。
 			SDK 注入和消息收发都是按"文档"来的，子框架不另做处理。
-		</div>
-		<button onclick="resize700()">win.resize(700, 520)</button>
-		<button onclick="subscribe()">订阅 win resize</button>
-		<button onclick="unsubscribe()">取消订阅</button>
-		<div class="note">
+			<br />
 			订阅后拖动窗口边缘：事件来自<b>本页</b>的订阅。
 			事件是推给"订阅的那个文档"的 —— 切到「窗口」页再订阅一次，
 			同一时刻只有订阅者收得到（切换演示页时旧页面的订阅会被撤销）。

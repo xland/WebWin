@@ -33,6 +33,12 @@ interface WebWinConfig {
     origin: string;
     /** 当前窗口的 id，由 C++ 注入；SDK 据此构造全局 win 对象 */
     winId?: number;
+    /**
+     * 应用基准目录（package.json 所在目录），由 C++ 注入。
+     * `path.resolve()` / `path.relative()` 拿它当基准 —— 框架里没有 cwd 概念
+     * （全库不调 GetCurrentDirectory），这里取代 Node 的 process.cwd()
+     */
+    appPath?: string;
 }
 type Payload = unknown;
 type Handler<T = unknown> = (payload: T) => void;
@@ -286,6 +292,122 @@ declare class Os extends Ipc {
     /** 阻止系统休眠（直到调用 stopPreventSleep 或进程退出） */
     preventSleep(): Promise<void>;
     stopPreventSleep(): Promise<void>;
+}
+
+// ---- Path ----
+/**
+ * 路径字符串工具（`window.path`）。
+ *
+ * **这是 SDK 里唯一不走 C++ 的能力**：全是纯字符串运算，一次 IPC 都不发，
+ * 所以方法全是**同步**的，直接返回值而不是 Promise。其余能力域都要过消息通道、
+ * 都是 async，别把这里的写法套过去。
+ *
+ * 语义对齐 Node.js 的 `path.win32`（本框架只支持 Windows，所以没有 `path.posix`、
+ * 也没有 `path.win32` 这层自引用）。输入**同时接受 `/` 和 `\`**，输出统一 `\`。
+ *
+ * ```ts
+ * path.join(base, 'data', 'app.db');  // '<基准目录>\data\app.db'
+ * path.dirname('C:\\a\\b.txt');       // 'C:\\a'
+ * path.extname('C:\\a\\b.txt');       // '.txt'
+ * path.parse('C:\\a\\b.txt').name;    // 'b'
+ * ```
+ *
+ * 与 Node 的两处不同，都是有意为之：
+ * - `resolve()` / `relative()` 的基准是**应用基准目录**（package.json 所在目录，
+ *   启动时由 C++ 注入），不是 `process.cwd()`。桌面应用的 cwd 取决于启动方式
+ *   （双击 / 快捷方式 / 命令行各不相同），拿它当基准结果不可预测。
+ * - 多了一组 Node 没有的 Windows 专属校验：`isValidName()` / `isValidPath()`。
+ *
+ * 实现细节：`normalize()` / `join()` 里那些看着绕的分支不是冗余 ——
+ * 前半段处理 `\\.\` / `\\?\` 设备根和 `NUL:` 这类保留设备名，
+ * 末尾那段 `.\\` 前缀是修 CVE-2024-36139 的（防止相对路径被系统误判成绝对路径）。
+ * 别为了"简化"删掉它们，改之前先跑一遍差分测试。
+ */
+/** `path.parse()` 的返回 */
+interface ParsedPath {
+    /** 根：`'C:\\'` / `'\\\\server\\share\\'` / `''` */
+    root: string;
+    /** 所在目录；没有目录时等于 root */
+    dir: string;
+    /** 最后一段（含扩展名） */
+    base: string;
+    /** 扩展名（含前导点）；没有则 `''` */
+    ext: string;
+    /** 最后一段去掉扩展名 */
+    name: string;
+}
+/** `path.format()` 的参数。给了 `base` 时忽略 `name` / `ext` */
+interface PathObject {
+    root?: string;
+    dir?: string;
+    base?: string;
+    ext?: string;
+    name?: string;
+}
+declare class Path {
+    /** 路径分隔符 */
+    readonly sep = "\\";
+    /** PATH 那种环境变量里分隔多个路径用的符号 */
+    readonly delimiter = ";";
+    /**
+     * `resolve()` / `relative()` 的基准目录，启动时由 C++ 注入。
+     * @internal 开发者不要自己 new，用 `window.path`
+     */
+    private readonly base;
+    constructor(base?: string);
+    /** `resolve()` / `relative()` 用的基准目录 */
+    getBase(): string;
+    /**
+     * 拼接后规范化：多余分隔符、`.`、`..` 都会消掉。
+     * 参数里有绝对路径时**不会**重置（这点和 `resolve` 不同）。
+     *
+     * 任一段不是字符串就抛 TypeError。
+     */
+    join(...args: string[]): string;
+    /**
+     * 从右往左解析：遇到第一个绝对路径就停，剩下的拼在它后面。
+     * 全是相对路径时以应用基准目录（`getBase()`）为底。
+     *
+     * ```ts
+     * path.resolve('data', 'a.db');  // '<基准目录>\data\a.db'
+     * path.resolve('C:\\x', 'y');    // 'C:\\x\\y'
+     * ```
+     */
+    resolve(...args: string[]): string;
+    /** 规范化：消掉 `.` / `..` / 重复分隔符，斜杠统一成反斜杠 */
+    normalize(path: string): string;
+    /** 最后一段（含扩展名）。给了 `suffix` 且正好对上，就从尾部去掉 */
+    basename(path: string, suffix?: string): string;
+    /** 所在目录 */
+    dirname(path: string): string;
+    /** 扩展名（含前导点）；没有、或最后一段以点开头时返回 `''` */
+    extname(path: string): string;
+    /** 拆成 `{ root, dir, base, ext, name }` 五段 */
+    parse(path: string): ParsedPath;
+    /** `parse()` 的逆运算。给了 `base` 时忽略 `name` / `ext` */
+    format(pathObject: PathObject): string;
+    /** 是否绝对路径（盘符加分隔符、UNC、或 `\foo` 这种根相对）。`C:foo` 不算 */
+    isAbsolute(path: string): boolean;
+    /**
+     * `from` 到 `to` 的相对路径。两边先按 `resolve()` 展开，
+     * 所以给相对路径时以应用基准目录为底。不同盘符算不出来，返回 `to`。
+     */
+    relative(from: string, to: string): string;
+    /**
+     * 单个文件/目录名在 Windows 上是否可用。查三件事，都是纯字符串能查的：
+     * 1. 非法字符：`<>:"|?*`、两个分隔符、以及 0-31 控制字符
+     * 2. 保留设备名：`CON` / `PRN` / `AUX` / `NUL` / `COM1-9` / `LPT1-9`
+     *    （带扩展名也算，`nul.txt` 同样指向设备；大小写不敏感）
+     * 3. 以点或空格结尾（系统会自动把尾巴上的点和空格去掉，存出来跟你要的不一样）
+     *
+     * 传的是**单段名字**，不要带分隔符。
+     */
+    isValidName(name: string): boolean;
+    /**
+     * 整条路径在 Windows 上是否可用：按分隔符切段，逐段用 `isValidName()` 查。
+     * 盘符（`C:`）、UNC 根、`\\?\` 前缀、以及 `.` / `..` 都不参与名字校验。
+     */
+    isValidPath(path: string): boolean;
 }
 
 // ---- Win ----
@@ -572,10 +694,12 @@ declare class Tray extends Ipc {
  * 安装成功后，页面里可以直接使用：
  *   win            —— 当前窗口对象
  *   Win            —— 窗口类型，Win.create() 创建新窗口
- *   os / app / display / dialog —— 与窗口无关的全局单例能力
+ *   os / app / display / dialog / path —— 与窗口无关的全局单例能力
  *   （dialog 虽是单例，但绑在当前窗口上：弹出来的框模态到当前窗口）
+ *   path 是纯 JS 的字符串工具，不经过 C++
  *   Menu / Db / Tray —— 需要自己建实例的类型（Menu.create() / Db.open() / Tray.create()）
  */
+
 
 
 
@@ -594,6 +718,8 @@ declare class Tray extends Ipc {
         os: Os;
         /** 应用级能力（全局单例，与窗口无关） */
         app: App;
+        /** 路径字符串工具（纯 JS，同步；不经过 C++） */
+        path: Path;
         /** 显示设备能力（全局单例，与窗口无关） */
         display: Display;
         /** 系统对话框能力（全局单例，但绑在当前窗口上） */

@@ -4,8 +4,9 @@
  * 安装成功后，页面里可以直接使用：
  *   win            —— 当前窗口对象
  *   Win            —— 窗口类型，Win.create() 创建新窗口
- *   os / app / display / dialog —— 与窗口无关的全局单例能力
+ *   os / app / display / dialog / path —— 与窗口无关的全局单例能力
  *   （dialog 虽是单例，但绑在当前窗口上：弹出来的框模态到当前窗口）
+ *   path 是纯 JS 的字符串工具，不经过 C++
  *   Menu / Db / Tray —— 需要自己建实例的类型（Menu.create() / Db.open() / Tray.create()）
  */
 
@@ -16,6 +17,7 @@ import { Display } from './Display';
 import { installChannel } from './Ipc';
 import { Menu } from './Menu';
 import { Os } from './Os';
+import { Path } from './Path';
 import { Tray } from './Tray';
 import { Win } from './Win';
 
@@ -29,6 +31,8 @@ declare global {
 		os: Os;
 		/** 应用级能力（全局单例，与窗口无关） */
 		app: App;
+		/** 路径字符串工具（纯 JS，同步；不经过 C++） */
+		path: Path;
 		/** 显示设备能力（全局单例，与窗口无关） */
 		display: Display;
 		/** 系统对话框能力（全局单例，但绑在当前窗口上） */
@@ -48,6 +52,8 @@ if (config) {
 	window.Win = Win;
 	window.os = new Os();
 	window.app = new App();
+	// 唯一的纯 JS 能力：不发消息，只从注入的配置里取基准目录
+	window.path = new Path(config.appPath ?? '');
 	window.display = new Display();
 	window.dialog = new Dialog(config.winId ?? null); // 对话框模态到当前窗口
 	window.Menu = Menu; // 菜单点击由 Menu 域自己在通道上登记钩子认领，这里不必接

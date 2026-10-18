@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin 路径 API 演示</title>
+	<style>
+		body {
+			font-family: system-ui, "Microsoft YaHei", sans-serif;
+			margin: 0;
+			padding: 16px;
+			color: #222;
+		}
+
+		section {
+			background: #fff;
+			border: 1px solid #e3e3e6;
+			border-radius: 8px;
+			padding: 16px;
+			margin-bottom: 16px;
+		}
+
+		h2 {
+			font-size: 14px;
+			margin: 0 0 12px;
+			color: #444;
+		}
+
+		.first {
+			margin-top: 0;
+		}
+
+		.note {
+			font-size: 12px;
+			color: #888;
+			margin: 8px 0 0;
+		}
+
+		button {
+			font: inherit;
+			font-size: 13px;
+			padding: 6px 12px;
+			margin: 0 8px 8px 0;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+			background: #fff;
+			cursor: pointer;
+		}
+
+		button:hover {
+			background: #f0f0f2;
+		}
+
+		code {
+			background: #f4f4f5;
+			border-radius: 3px;
+			padding: 1px 4px;
+		}
+	</style>
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section class="first">
+		<h2>常量与基准</h2>
+		<button onclick="demoConsts()">sep / delimiter / 基准目录</button>
+		<div class="note">
+			基准目录是 <code>package.json</code> 所在的目录 —— <code>resolve()</code> /
+			<code>relative()</code> 拿它当底，取代 Node 的 <code>process.cwd()</code>。
+		</div>
+	</section>
+
+	<section>
+		<h2>组装</h2>
+		<button onclick="demoJoin()">join</button>
+		<button onclick="demoResolve()">resolve</button>
+		<button onclick="demoNormalize()">normalize</button>
+		<div class="note">
+			<code>join</code> 遇到绝对路径<b>不会</b>重置；<code>resolve</code> 会 —— 它从右往左
+			找第一个绝对路径就用它。
+		</div>
+	</section>
+
+	<section>
+		<h2>拆分</h2>
+		<button onclick="demoSplit()">dirname / basename / extname</button>
+		<button onclick="demoParse()">parse（+ format 还原）</button>
+		<div class="note">
+			输入<b>同时接受 <code>/</code> 和 <code>\</code></b>，输出统一成 <code>\</code>。
+		</div>
+	</section>
+
+	<section>
+		<h2>判定与计算</h2>
+		<button onclick="demoIsAbsolute()">isAbsolute</button>
+		<button onclick="demoRelative()">relative</button>
+		<div class="note">
+			<code>C:foo</code> 不算绝对路径（缺分隔符），<code>C:\foo</code> 才算。
+		</div>
+	</section>
+
+	<section>
+		<h2>Windows 专属校验（Node 没有）</h2>
+		<button onclick="demoValidName()">isValidName</button>
+		<button onclick="demoValidPath()">isValidPath</button>
+		<div class="note">
+			<code>NUL.txt</code> / <code>COM1.log</code> 在 Windows 上<b>不是文件</b>，
+			读写会打到设备上；名字末尾的点和空格会被系统悄悄去掉。这些都判非法。
+		</div>
+	</section>
+
+	<section>
+		<h2>错误</h2>
+		<button onclick="demoTypeError()">传非字符串 → 抛 TypeError</button>
+		<div class="note">
+			同步抛出，用 <code>try / catch</code> 接。跟 Node 一致。
+		</div>
+	</section>
+
+	<script>
+		// 顺手打一组对比，省得每次只看到一个值
+		function show(title, fn, cases) {
+			log(`── ${title}`, 'ok');
+			for (const c of cases) {
+				let out;
+				try { out = fn(c); } catch (e) { out = `抛异常：${e.message}`; }
+				log(`  ${JSON.stringify(c).padEnd(26)} → ${out}`);
+			}
+		}
+
+		function demoConsts() {
+			log(`sep = ${JSON.stringify(path.sep)}`, 'ok');
+			log(`delimiter = ${JSON.stringify(path.delimiter)}`, 'ok');
+			log(`基准目录 = ${path.getBase() || '（未注入）'}`, 'ok');
+		}
+
+		const SAMPLES = ['C:\\a\\b\\c.txt', 'a/b', '\\\\server\\share\\x', 'C:foo', 'C:\\', '..\\a'];
+
+		function demoJoin() {
+			log('── join', 'ok');
+			log(`  join('a', 'b', 'c')           → ${path.join('a', 'b', 'c')}`);
+			log(`  join('C:\\\\a', '..\\\\b', 'c')    → ${path.join('C:\\a', '..\\b', 'c')}`);
+			log(`  join('a', 'C:\\\\b')             → ${path.join('a', 'C:\\b')}  ← 不重置`);
+			log(`  join('', '')                  → ${path.join('', '')}`);
+		}
+
+		function demoResolve() {
+			log('── resolve（基准 = 应用目录）', 'ok');
+			log(`  resolve('data', 'a.db')       → ${path.resolve('data', 'a.db')}`);
+			log(`  resolve('.')                  → ${path.resolve('.')}`);
+			log(`  resolve('C:\\\\x', 'y')          → ${path.resolve('C:\\x', 'y')}  ← 用了绝对路径`);
+			log(`  resolve('a', 'C:\\\\b', 'c')     → ${path.resolve('a', 'C:\\b', 'c')}`);
+		}
+
+		function demoNormalize() {
+			show('normalize', (p) => path.normalize(p),
+				['C:\\a\\\\b\\\\\\c', 'C:\\a\\.\\b', 'C:\\a\\..\\b', 'a/b/c', '\\\\server\\share\\a']);
+		}
+
+		function demoSplit() {
+			show('dirname', (p) => path.dirname(p), SAMPLES);
+			show('basename', (p) => path.basename(p), SAMPLES);
+			show("basename(…, '.txt')", (p) => path.basename(p, '.txt'), SAMPLES);
+			show('extname', (p) => path.extname(p), SAMPLES);
+		}
+
+		function demoParse() {
+			for (const p of ['C:\\a\\b.txt', '\\\\server\\share\\x', 'a']) {
+				const o = path.parse(p);
+				log(`parse(${JSON.stringify(p)})`, 'ok');
+				log(`  root=${JSON.stringify(o.root)} dir=${JSON.stringify(o.dir)}`);
+				log(`  base=${JSON.stringify(o.base)} name=${JSON.stringify(o.name)} ext=${JSON.stringify(o.ext)}`);
+				log(`  format() 还原 → ${JSON.stringify(path.format(o))}`);
+			}
+		}
+
+		function demoIsAbsolute() {
+			show('isAbsolute', (p) => path.isAbsolute(p),
+				['C:\\a', 'C:foo', 'C:\\', '\\foo', '\\\\server\\share', 'a\\b', 'D:/x/y']);
+		}
+
+		function demoRelative() {
+			const pairs = [
+				['C:\\a\\b', 'C:\\a\\c'], ['C:\\a\\b\\c', 'C:\\a'], ['C:\\a', 'C:\\a'],
+				['C:\\a', 'D:\\b'], ['\\\\s\\h\\a', '\\\\s\\h\\b'],
+			];
+			for (const [f, t] of pairs) log(`relative(${JSON.stringify(f)}, ${JSON.stringify(t)}) → ${JSON.stringify(path.relative(f, t))}`, 'ok');
+		}
+
+		function demoValidName() {
+			show('isValidName', (n) => path.isValidName(n),
+				['a.txt', 'NUL', 'nul.txt', 'COM1', 'COM1.log', 'a<b', 'a|b', 'a*b', 'a.', 'a ', 'CON', 'LPT9', 'ok']);
+		}
+
+		function demoValidPath() {
+			show('isValidPath', (p) => path.isValidPath(p),
+				['C:\\a\\b.txt', '\\\\server\\share\\a', 'C:\\a\\NUL.txt', 'C:\\a\\b<c', 'C:\\Program Files\\a', 'a/b']);
+		}
+
+		function demoTypeError() {
+			// 预期就是失败，所以用 evt 蓝而不是 err 红
+			try {
+				const r = path.join('a', 42);
+				log(`没抛异常，返回 ${JSON.stringify(r)}`, 'evt');
+			} catch (e) {
+				log(`path.join('a', 42) → ${e.constructor.name}: ${e.message}`, 'evt');
+			}
+			try {
+				path.dirname(null);
+				log('path.dirname(null) → 没抛异常', 'evt');
+			} catch (e) {
+				log(`path.dirname(null) → ${e.constructor.name}: ${e.message}`, 'evt');
+			}
+		}
+
+		// ---------- 切换页面时清理 ----------
+		// path 没有订阅，也没什么要撤的；留个空函数是因为外壳切换页面时会调它
+		function unsubscribeAll() { }
+	</script>
+</body>
+
+</html>
