@@ -19,7 +19,7 @@ const srcDir = path.join(root, 'dist', 'types');
 const outFile = path.join(root, 'dist', 'webwin.d.ts');
 
 // 输出顺序：Ipc 是基类放最前，各域随后，global 块放最后
-const order = ['Ipc', 'App', 'Menu', 'Os', 'Path', 'Win', 'Display', 'Dialog', 'Db', 'Tray', 'WebWin'];
+const order = ['Ipc', 'App', 'Menu', 'Os', 'Path', 'Win', 'Display', 'Dialog', 'Http', 'Db', 'Tray', 'WebWin'];
 
 /** 去掉 declare global { ... } 这一层，让内容回到顶层（合并后大家都在同一作用域） */
 function unwrapGlobal(text)

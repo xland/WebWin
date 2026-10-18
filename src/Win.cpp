@@ -9,6 +9,7 @@
 #include "App.h"
 #include "Db.h"
 #include "Dialog.h"
+#include "Http.h"
 #include "Tray.h"
 #include "Env.h"
 #include "Json.h"
@@ -474,6 +475,7 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		Menu::removeByPage(winObj->page.get()); // 本页建的菜单一起销毁：点击已无处可推
 		Dialog::removeByPage(winObj->page.get()); // 本页排着的对话框请求：窗口没了就弹不了
 		Db::removeByPage(winObj->page.get());     // 本页开的数据库连接一起关：不然文件锁一直占着
+		Http::removeByPage(winObj->page.get());   // 本页还在等的 HTTP 请求：页面没了回包会用到悬挂指针
 		removeWin(winObj);
 		// 有托盘图标就不自动退：托盘的主场景就是"关掉窗口、应用留在托盘里继续跑"，
 		// 这时候要不要退出交给应用自己在托盘菜单里放个"退出"项决定

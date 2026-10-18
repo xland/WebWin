@@ -22,3 +22,4 @@ QuickWin
 | [数据库 API](doc/db.md)      | `db`：使用本地SQLite数据库       |
 | [托盘 API](doc/tray.md)      | `Tray`：托盘图标、右键菜单、事件 |
 | [路径 API](doc/path.md)      | `path`：路径拼接、拆分、校验    |
+| [HTTP API](doc/http.md)      | `Http`：发 HTTP/HTTPS 请求      |

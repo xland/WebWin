@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin HTTP API 演示</title>
+	<style>
+		body {
+			font-family: system-ui, "Microsoft YaHei", sans-serif;
+			margin: 0;
+			padding: 16px;
+			color: #222;
+		}
+
+		section {
+			background: #fff;
+			border: 1px solid #e3e3e6;
+			border-radius: 8px;
+			padding: 16px;
+			margin-bottom: 16px;
+		}
+
+		h2 {
+			font-size: 14px;
+			margin: 0 0 12px;
+			color: #444;
+		}
+
+		.first {
+			margin-top: 0;
+		}
+
+		.note {
+			font-size: 12px;
+			color: #888;
+			margin: 8px 0 0;
+		}
+
+		button {
+			font: inherit;
+			font-size: 13px;
+			padding: 6px 12px;
+			margin: 0 8px 8px 0;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+			background: #fff;
+			cursor: pointer;
+		}
+
+		button:hover {
+			background: #f0f0f2;
+		}
+
+		code {
+			background: #f4f4f5;
+			border-radius: 3px;
+			padding: 1px 4px;
+		}
+
+		input,
+		select,
+		textarea {
+			font: inherit;
+			font-size: 13px;
+			padding: 5px 8px;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+			box-sizing: border-box;
+		}
+
+		.url {
+			width: 100%;
+			margin-bottom: 8px;
+		}
+
+		textarea {
+			width: 100%;
+			height: 60px;
+			resize: vertical;
+			margin-bottom: 8px;
+			font-family: Consolas, monospace;
+		}
+
+		label {
+			display: block;
+			font-size: 12px;
+			color: #666;
+			margin-bottom: 4px;
+		}
+	</style>
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section class="first">
+		<h2>发一个请求</h2>
+		<input id="url" class="url" value="https://example.com">
+		<label>请求头（JSON）</label>
+		<textarea id="headers">{}</textarea>
+		<label>请求体</label>
+		<textarea id="body"></textarea>
+		<button onclick="send()">发送</button>
+		<button onclick="send('POST')">发 POST</button>
+		<div class="note">
+			请求体要发 JSON 的话，自己 <code>JSON.stringify</code> 并在请求头里写
+			<code>{"content-type":"application/json"}</code> —— 原生层不会替你猜。
+		</div>
+	</section>
+
+	<section>
+		<h2>对比：Http.fetch 不走 CORS，页面里的 fetch 走</h2>
+		<button onclick="demoCors()">同一个 URL，两边各发一次</button>
+		<div class="note">
+			页面跑在 <code>https://{appId}</code> 这个全世界都不认识的 origin 上，
+			所以页面里直接 <code>fetch()</code> 会被 CORS 拒；<code>Http.fetch()</code>
+			走 C++ 的 WinHTTP，不经渲染进程，没有 CORS 这回事。<b>这一条就是本能力的全部意义。</b>
+		</div>
+	</section>
+
+	<section>
+		<h2>什么会 reject，什么不会</h2>
+		<button onclick="demo404()">404 —— resolve，看 ok=false</button>
+		<button onclick="demoFail()">连不上的域名 —— reject</button>
+		<div class="note">
+			网络层失败（DNS 解析不了 / 连不上 / 超时 / 证书不过）才 <b>reject</b>；
+			404 / 500 是服务端给的正常答复，<b>照常 resolve</b>，要看 <code>res.ok</code>。
+			这跟 web fetch 一致。
+		</div>
+	</section>
+
+	<section>
+		<h2>响应头与 body</h2>
+		<button onclick="demoHeaders()">看 headers / text() / json()</button>
+		<div class="note">
+			响应头的 key <b>统一小写</b>，所以取的时候写 <code>res.headers['content-type']</code>。
+		</div>
+	</section>
+
+	<script>
+		// ---------------------------------------------------------------- 发请求
+		function readForm(method) {
+			const url = document.getElementById('url').value.trim();
+			let headers = {};
+			try {
+				headers = JSON.parse(document.getElementById('headers').value.trim() || '{}');
+			} catch (e) {
+				log(`请求头不是合法 JSON：${e.message}`, 'err');
+				return null;
+			}
+			const body = document.getElementById('body').value;
+			return { url, options: { method: method || 'GET', headers, body } };
+		}
+
+		async function send(method) {
+			const form = readForm(method);
+			if (!form) return;
+			log(`── Http.fetch(${JSON.stringify(form.url)})`, 'ok');
+			const t0 = Date.now();
+			try {
+				const res = await Http.fetch(form.url, form.options);
+				log(`  ${Date.now() - t0}ms  status=${res.status} ${res.statusText}  ok=${res.ok}`, res.ok ? 'ok' : 'err');
+				const text = await res.text();
+				log(`  响应体 ${text.length} 字节，前 120 字符：${JSON.stringify(text.slice(0, 120))}`);
+			} catch (e) {
+				log(`  ${Date.now() - t0}ms  reject：${e.message}`, 'err');
+			}
+		}
+
+		// ------------------------------------------------- 与页面里 fetch 的对比
+		async function demoCors() {
+			const url = document.getElementById('url').value.trim();
+			log('── 同一个 URL，两种走法', 'ok');
+
+			log('  [1] Http.fetch（走 C++，无 CORS）', 'ok');
+			try {
+				const res = await Http.fetch(url);
+				log(`      → status=${res.status} ok=${res.ok}  body ${(await res.text()).length} 字节`, res.ok ? 'ok' : 'err');
+			} catch (e) {
+				log(`      → reject：${e.message}`, 'err');
+			}
+
+			log('  [2] 页面里的 fetch（走浏览器，过 CORS）', 'evt');
+			try {
+				const res = await fetch(url);
+				log(`      → status=${res.status} ok=${res.ok}  body ${(await res.text()).length} 字节`, res.ok ? 'ok' : 'err');
+			} catch (e) {
+				// 预期就是失败，所以用 evt 蓝而不是 err 红
+				log(`      → reject：${e.message}（这就是 CORS 拦的）`, 'evt');
+			}
+			log(`  当前页面 origin = ${location.origin} —— 服务端不认它就拒`, 'ok');
+		}
+
+		async function demo404() {
+			log('── 404：resolve，不是 reject', 'ok');
+			try {
+				const res = await Http.fetch('https://httpbin.org/status/404');
+				log(`  ok=${res.ok}  status=${res.status} ${res.statusText}  ← 走到了这里说明没 reject`, res.ok ? 'ok' : 'err');
+			} catch (e) {
+				log(`  reject：${e.message}（若网络不通会走这里，那不是 404 的锅）`, 'err');
+			}
+		}
+
+		async function demoFail() {
+			log('── 连不上的域名：reject', 'ok');
+			try {
+				const res = await Http.fetch('https://this-host-does-not-exist-webwin.example');
+				log(`  竟然成功了：status=${res.status}（多半是代理拦了）`, 'err');
+			} catch (e) {
+				log(`  reject：${e.message}`, 'evt'); // 预期失败
+			}
+		}
+
+		async function demoHeaders() {
+			log('── 响应头 / text() / json()', 'ok');
+			try {
+				const res = await Http.fetch('https://httpbin.org/get');
+				log(`  status=${res.status}  ok=${res.ok}`, 'ok');
+				log(`  statusText=${JSON.stringify(res.statusText)}`);
+				for (const [k, v] of Object.entries(res.headers)) log(`  ${k}: ${v.slice(0, 70)}`);
+				log(`  text() 前 80 字符：${JSON.stringify((await res.text()).slice(0, 80))}`);
+				log(`  json() 的 url 字段：${JSON.stringify((await res.json()).url)}`);
+			} catch (e) {
+				log(`  reject：${e.message}`, 'err');
+			}
+		}
+
+		// ---------- 切换页面时清理 ----------
+		// http 没有订阅，也没什么要撤的；留个空函数是因为外壳切换页面时会调它
+		function unsubscribeAll() { }
+	</script>
+</body>
+
+</html>

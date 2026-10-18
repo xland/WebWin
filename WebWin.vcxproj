@@ -61,7 +61,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>dwmapi.lib;shell32.lib;usp10.lib;kernel32.lib;user32.lib;windowsapp.lib;windowscodecs.lib;version.lib;urlmon.lib;onecore.lib;ws2_32.lib;iphlpapi.lib;crypt32.lib;wtsapi32.lib;advapi32.lib;shcore.lib;gdiplus.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>dwmapi.lib;shell32.lib;usp10.lib;kernel32.lib;user32.lib;windowsapp.lib;windowscodecs.lib;version.lib;urlmon.lib;onecore.lib;ws2_32.lib;iphlpapi.lib;winhttp.lib;crypt32.lib;wtsapi32.lib;advapi32.lib;shcore.lib;gdiplus.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
@@ -83,7 +83,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>dwmapi.lib;shell32.lib;usp10.lib;kernel32.lib;user32.lib;windowsapp.lib;windowscodecs.lib;version.lib;urlmon.lib;onecore.lib;ws2_32.lib;iphlpapi.lib;crypt32.lib;wtsapi32.lib;advapi32.lib;shcore.lib;gdiplus.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>dwmapi.lib;shell32.lib;usp10.lib;kernel32.lib;user32.lib;windowsapp.lib;windowscodecs.lib;version.lib;urlmon.lib;onecore.lib;ws2_32.lib;iphlpapi.lib;winhttp.lib;crypt32.lib;wtsapi32.lib;advapi32.lib;shcore.lib;gdiplus.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
@@ -105,6 +105,7 @@
     <ClCompile Include="src\Dialog.cpp" />
     <ClCompile Include="src\Db.cpp" />
     <ClCompile Include="src\Tray.cpp" />
+    <ClCompile Include="src\Http.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -123,6 +124,7 @@
     <ClInclude Include="src\Dialog.h" />
     <ClInclude Include="src\Db.h" />
     <ClInclude Include="src\Tray.h" />
+    <ClInclude Include="src\Http.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\Res.rc" />
