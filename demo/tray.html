@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin 托盘图标 API 演示</title>
+	<style>
+		body {
+			font-family: system-ui, "Microsoft YaHei", sans-serif;
+			margin: 0;
+			padding: 16px;
+			color: #222;
+		}
+
+		section {
+			background: #fff;
+			border: 1px solid #e3e3e6;
+			border-radius: 8px;
+			padding: 16px;
+			margin-bottom: 16px;
+		}
+
+		h2 {
+			font-size: 14px;
+			margin: 0 0 12px;
+			color: #444;
+		}
+
+		.note {
+			font-size: 12px;
+			color: #888;
+			margin: 8px 0 0;
+		}
+
+		button {
+			font: inherit;
+			font-size: 13px;
+			padding: 6px 12px;
+			margin: 0 8px 8px 0;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+			background: #fff;
+			cursor: pointer;
+		}
+
+		button:hover {
+			background: #f0f0f2;
+		}
+
+		code {
+			background: #f4f4f5;
+			border-radius: 3px;
+			padding: 1px 4px;
+		}
+	</style>
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section>
+		<h2>创建（Tray.create）</h2>
+		<button onclick="createWithMenu()">带菜单 + 提示</button>
+		<button onclick="createWithTip()">只带提示</button>
+		<button onclick="createPlain()">什么都不传</button>
+		<div class="note">
+			<code>tooltip</code> 和 <code>menu</code> <b>都可以不传</b>，都在 create 时给，之后换不了菜单。
+			图标一律用 <b>exe 自己的图标</b>（v1 不支持自定义）。
+			一个进程<b>可以建多个</b>图标 —— 多点几次看看。
+		</div>
+	</section>
+
+	<section>
+		<h2>改提示（tray.setToolTip）</h2>
+		<button onclick="changeTip()">改最后一个的提示</button>
+		<div class="note">
+			改完把鼠标悬到托盘图标上看。系统最多只显示 <b>128 个字符</b>，超了会被截。
+		</div>
+	</section>
+
+	<section>
+		<h2>事件（tray.on）</h2>
+		<button onclick="toggleEvents()">订阅 / 退订（click · rightClick · doubleClick）</button>
+		<div class="note">
+			订阅后去点托盘图标：<b>双击不会再连带出一次 click</b>（C++ 侧压后派发，
+			等过系统双击窗口才发单击）。
+			有菜单时右键<b>两个都给</b> —— 既发 <code>rightClick</code> 也弹菜单。
+		</div>
+	</section>
+
+	<section>
+		<h2>销毁（tray.destroy）</h2>
+		<button onclick="destroyLast()">销毁最后一个</button>
+		<div class="note">
+			忘了调，托盘里会一直留着这个图标。
+		</div>
+	</section>
+
+	<section>
+		<h2>注意：建了托盘，关窗口不会退出应用</h2>
+		<div class="note">
+			只要还有托盘图标，<b>最后一个窗口关掉时应用不再自动退出</b>
+			（否则"关窗口、应用留在托盘里"这个主场景就没了）。
+			要退出就在托盘菜单里自己放一项 —— 上面那个菜单的"退出"调的是
+			<code>app.exit()</code>。<br>
+			另外：菜单是<b>创建它的页面</b>建的，本页被销毁（切换演示页）后菜单也就没了，
+			但图标还在 —— 那时右键只发事件、不弹菜单。
+		</div>
+	</section>
+
+	<script>
+		// 建的托盘都记下来，方便改提示 / 销毁时找到；事件退订函数另存一份
+		const trays = [];
+		let unsubs = [];
+
+		function fail(what, e) {
+			log(`${what} → 失败：${e && e.message ? e.message : e}`, 'err');
+		}
+
+		/** 每个托盘菜单都一样，抽出来复用 */
+		async function makeMenu() {
+			return await Menu.create([
+				{ label: '显示窗口', onclick: () => { win.show(); log('菜单：显示窗口'); } },
+				{ label: '隐藏窗口', onclick: () => { win.hide(); log('菜单：隐藏窗口'); } },
+				{ type: 'separator' },
+				{ label: '退出', onclick: () => app.exit() },
+			]);
+		}
+
+		async function createWithMenu() {
+			try {
+				const menu = await makeMenu();
+				const tray = await Tray.create({ tooltip: 'WebWin 演示（右键有菜单）', menu });
+				trays.push(tray);
+				log(`Tray.create(带菜单) → ok，当前 ${trays.length} 个图标`, 'ok');
+			} catch (e) { fail('Tray.create(带菜单)', e); }
+		}
+
+		async function createWithTip() {
+			try {
+				const tray = await Tray.create({ tooltip: '只有提示，没有菜单' });
+				trays.push(tray);
+				log(`Tray.create(只带提示) → ok，当前 ${trays.length} 个图标`, 'ok');
+			} catch (e) { fail('Tray.create(只带提示)', e); }
+		}
+
+		async function createPlain() {
+			try {
+				const tray = await Tray.create();
+				trays.push(tray);
+				log(`Tray.create() → ok（没菜单也没提示），当前 ${trays.length} 个图标`, 'ok');
+			} catch (e) { fail('Tray.create()', e); }
+		}
+
+		async function changeTip() {
+			try {
+				if (!trays.length) { log('还没有托盘图标', 'evt'); return; }
+				const text = `悬停时间 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
+				await trays[trays.length - 1].setToolTip(text);
+				log(`setToolTip → "${text}"（鼠标悬到图标上看）`, 'ok');
+			} catch (e) { fail('setToolTip', e); }
+		}
+
+		function toggleEvents() {
+			if (unsubs.length) {
+				for (const off of unsubs) off();
+				unsubs = [];
+				log('已退订全部托盘事件', 'evt');
+				return;
+			}
+			if (!trays.length) { log('先建一个托盘图标再订阅', 'evt'); return; }
+
+			const tray = trays[trays.length - 1];
+			unsubs.push(tray.on('click', () => log('事件 click → 单击', 'evt')));
+			unsubs.push(tray.on('rightClick', () => log('事件 rightClick → 右键（有菜单的话同时弹菜单）', 'evt')));
+			unsubs.push(tray.on('doubleClick', () => log('事件 doubleClick → 双击（不会再连带 click）', 'evt')));
+			log('已订阅 click / rightClick / doubleClick —— 去点托盘图标', 'ok');
+		}
+
+		async function destroyLast() {
+			try {
+				if (!trays.length) { log('没有可销毁的图标', 'evt'); return; }
+				const tray = trays.pop();
+				await tray.destroy();
+				log(`destroy → ok，还剩 ${trays.length} 个`, 'ok');
+			} catch (e) { fail('destroy', e); }
+		}
+
+		// ---------- 切换页面时清理 ----------
+		// 外壳（index.html）切换左侧菜单时会调这个函数。这里只退订事件，
+		// **不销毁托盘**：图标是应用级的，不该跟着页面走
+		function unsubscribeAll() {
+			for (const off of unsubs) off();
+			unsubs = [];
+		}
+	</script>
+</body>
+
+</html>

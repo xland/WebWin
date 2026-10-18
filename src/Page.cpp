@@ -14,6 +14,7 @@
 #include "Page.h"
 #include "Json.h"
 #include "Util.h"
+#include "Tray.h"
 
 namespace {
 	// 取 exe 内嵌的 RCDATA 资源（src/web/dist 下的产物，见 Res.rc）
@@ -260,6 +261,7 @@ void Page::handleMessage(const wchar_t* json, ICoreWebView2Frame2* frame)
     else if (type == L"menu") Menu::handleApi(method, params, this, result, frame);
     else if (type == L"app") App::handleApi(method, params, this, result, frame);
     else if (type == L"db") Db::handleApi(method, params, this, result, frame);
+    else if (type == L"tray") Tray::handleApi(method, params, this, result, frame);
     else if (type == L"display") sent = Display::handleApi(method, params, this, result, frame);
     // 弹框不能当场执行（回调里开模态循环会被 Runtime 判重入），
     // 所以 handleApi 返回"是否已自行发回响应"，由它决定要不要再发一次信封

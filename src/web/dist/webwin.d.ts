@@ -521,6 +521,50 @@ declare class Db extends Ipc {
     all(sql: string, params?: DbParams): Promise<DbRow[]>;
 }
 
+// ---- Tray ----
+/** `Tray.create()` 的参数；两个都可以不传 */
+interface TrayOptions {
+    /** 鼠标悬停时的提示文字；系统最多只有 128 个字符，超了会被截 */
+    tooltip?: string;
+    /** 右键时弹出的菜单（左键不弹）。不传就只有事件、没有菜单 */
+    menu?: Menu;
+}
+/**
+ * 系统托盘图标。
+ *
+ * ```ts
+ * const menu = await Menu.create([{ label: '退出', onclick: () => app.quit() }]);
+ * const tray = await Tray.create({ tooltip: '我的应用', menu });
+ * tray.on('doubleClick', () => win.show());
+ * ```
+ *
+ * 三点要留意：
+ * - 图标一律用 **exe 自己的图标**，v1 不支持自定义
+ * - 建了托盘图标后，**最后一个窗口关掉时应用不再自动退出**
+ *   （quitWhenNoWindow 会让位给托盘）。要退出就自己在菜单里放一项
+ * - 菜单是创建时传的，之后换不了。菜单所属的页面被销毁后菜单也就没了，
+ *   但图标还在（右键只发事件、不弹菜单）
+ *
+ * 事件有三个：`click` / `rightClick` / `doubleClick`，用继承来的 `on()` 订阅。
+ * 双击不会再连带出一次 `click` —— C++ 侧压后派发、等过双击窗口才发单击。
+ */
+declare class Tray extends Ipc {
+    private static readonly domain;
+    protected type: string;
+    /** C++ 分配的托盘 id；开发者不感知，所以是 private */
+    private readonly id;
+    private constructor();
+    /**
+     * 建一个托盘图标。**是 async**：图标是 C++ 侧的 Win32 资源，得等它建好。
+     * 一个进程可以建多个。
+     */
+    static create(options?: TrayOptions): Promise<Tray>;
+    /** 改鼠标悬停时的提示文字 */
+    setToolTip(text: string): Promise<void>;
+    /** 移除图标。忘了调，托盘里会一直留着 */
+    destroy(): Promise<void>;
+}
+
 // ---- WebWin ----
 /**
  * WebWin JS SDK 入口（打包成 dist/webwin.js，内嵌进 exe）
@@ -530,8 +574,9 @@ declare class Db extends Ipc {
  *   Win            —— 窗口类型，Win.create() 创建新窗口
  *   os / app / display / dialog —— 与窗口无关的全局单例能力
  *   （dialog 虽是单例，但绑在当前窗口上：弹出来的框模态到当前窗口）
- *   Menu / Db   —— 需要自己建实例的类型（Menu.create() / Db.open()）
+ *   Menu / Db / Tray —— 需要自己建实例的类型（Menu.create() / Db.open() / Tray.create()）
  */
+
 
 
 
@@ -557,4 +602,6 @@ declare class Db extends Ipc {
         Menu: typeof Menu;
         /** 数据库类型：Db.open() 建连接，实例上再跑 SQL */
         Db: typeof Db;
+        /** 托盘类型：Tray.create() 建图标，实例上改提示、销毁、听事件 */
+        Tray: typeof Tray;
     }

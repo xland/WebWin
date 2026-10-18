@@ -5,24 +5,22 @@
     <title>WebWin API 演示</title>
     <style>
       /* 三栏就是一屏，整页不滚：滚动只发生在右边的日志区内部。
-         这里必须禁掉——否则 iframe 的行内基线会多出几像素，
-         加上 body 的上下 padding 就顶出纵向滚动条 */
+         这里必须禁掉——否则 iframe 的行内基线会多出几像素，就顶出纵向滚动条 */
       html,
       body {
         height: 100%;
         overflow: hidden;
       }
 
-      /* 三栏直接铺在 body 上：左目录 / 中功能（iframe）/ 右日志 */
+      /* 三栏直接铺在 body 上：左目录 / 中功能（iframe）/ 右日志。
+         不留 padding 也不用 gap：元素之间的间隙一律由各自的 margin 给 ——
+         "这块占多少空间"在每个元素自己身上看得见，改一处不会牵连整排 */
       body {
         font-family: system-ui, "Microsoft YaHei", sans-serif;
         margin: 0;
-        padding: 10px;
-        box-sizing: border-box; /* padding 吃进 100% 里，不再溢出 */
         color: #222;
         background: #f7f7f8;
         display: flex;
-        gap: 6px;
         align-items: flex-start;
       }
 
@@ -40,6 +38,8 @@
         overflow: auto;
       }
 
+      /* 目录项不是按钮：整条贯通左栏的左右两侧，没有圆角也没有描边，
+         选中与否只靠底色区分 */
       .left button {
         display: block;
         width: 100%;
@@ -47,26 +47,26 @@
         font: inherit;
         font-size: 13px;
         padding: 8px 12px;
-        margin: 0 0 6px;
-        border: 1px solid #c8c8cc;
-        border-radius: 4px;
-        background: #fff;
+        margin: 0 0 2px;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: #333;
         cursor: pointer;
       }
 
       .left button:hover {
-        background: #f0f0f2;
+        background: #e8e8eb;
       }
 
+      /* 选中态：实心蓝底 */
       .left button.active {
         background: #2a6ecb;
-        border-color: #2a6ecb;
         color: #fff;
       }
 
       .left button:disabled {
         color: #bbb;
-        border-color: #e3e3e6;
         cursor: not-allowed;
       }
 
@@ -78,10 +78,10 @@
 
       #content {
         display: block; /* iframe 默认 inline，行内基线会多出几像素撑高父容器 */
+        box-sizing: border-box; /* 边框吃进 100% 里，不然各边溢出 1px 被 body 裁掉 */
         width: 100%;
-        height: calc(100vh - 20px);
+        height: 100vh; /* body 没有 padding 了，直接顶满一屏 */
         border: 1px solid #e3e3e6;
-        border-radius: 8px;
         background: #fff;
       }
 
@@ -91,7 +91,7 @@
         width: 420px;
         flex: 0 0 auto;
         position: sticky;
-        height: calc(100vh - 20px);
+        height: 100vh; /* 同上：body 没有 padding 了 */
         display: flex;
         flex-direction: column;
       }
@@ -102,10 +102,9 @@
       .splitter {
         flex: 0 0 auto;
         align-self: stretch;
-        width: 6px;
+        width: 8px;
         cursor: col-resize;
         position: relative;
-        border-radius: 3px;
         background: transparent;
         transition: background 0.15s;
         touch-action: none; /* 触屏拖拽交给 pointer 事件，别被页面滚动抢走 */
@@ -149,7 +148,6 @@
         font-size: 12px;
         line-height: 1.6;
         padding: 12px;
-        border-radius: 6px;
         word-break: break-all;
       }
 
@@ -213,10 +211,7 @@
       <button onclick="openPage('app.html', this)">应用</button>
       <button onclick="openPage('dialog.html', this)">对话框</button>
       <button onclick="openPage('db.html', this)">数据库</button>
-      <button disabled>托盘（未实现）</button>
-      <div class="note" style="margin: 10px 0 0">
-        灰掉的能力还没实现，做出来后在这里加一项即可。
-      </div>
+      <button onclick="openPage('tray.html', this)">托盘</button>
     </div>
 
     <!-- 中栏：演示页 -->

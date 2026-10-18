@@ -19,3 +19,5 @@ QuickWin
 | [系统对话框 API](doc/dialog.md) | `dialog`：选文件、存文件、消息框 |
 | [右键菜单 API](doc/menu.md) | `Menu`：右键菜单与菜单项          |
 | [应用 API](doc/app.md)      | `app`：应用信息、路径、退出       |
+| [数据库 API](doc/db.md)      | `db`：使用本地SQLite数据库       |
+| [托盘 API](doc/tray.md)      | `Tray`：托盘图标、右键菜单、事件 |

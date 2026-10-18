@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | 1 | 文件读写、删除、创建 | |
 | 2 | 剪贴板访问 | |
-| 3 | 托盘图标 | |
+| 3 | 托盘图标 | **已落地**：`Tray.create({ tooltip?, menu? })` + `setToolTip()` / `destroy()` + `click` / `rightClick` / `doubleClick` 事件（见 `../doc/tray.md`）。图标一律用 exe 自己的（自定义图标待做，T013）；**有托盘图标时最后一个窗口关掉不退出应用** |
 | 4 | 应用程序多开通知机制 | **应用被多开时**（第二个实例启动）通知已有实例。第二个实例自身的处置（退出 / 继续运行）待定 |
 | 5 | 使用系统对话框 | **已落地**：`dialog.openPath()` / `savePath()` / `msgBox()` / `itemInFolder()`（见 `../doc/dialog.md`）。对话框模态到当前窗口 |
 | 6 | 阻止应用锁屏 | 阻止系统进入锁屏/休眠。**已落地**：`os.preventSleep()` / `os.stopPreventSleep()` |
@@ -21,7 +21,7 @@
 | 12 | 目录操作 API | 创建、遍历、删除等 |
 | 13 | 访问常用目录 | 音乐、文档、数据目录等 |
 | 14 | 访问窗口 | 枚举窗口、向窗口发送消息 |
-| 15 | 右键菜单 | 窗口右键菜单 **已落地**：`Menu.create()` / `win.setContextMenu()`；托盘右键菜单待做 |
+| 15 | 右键菜单 | **已落地**：窗口的 `Menu.create()` / `win.setContextMenu()`（见 `../doc/menu.md`）；托盘的 `Tray.create({ menu })`（见 `../doc/tray.md`） |
 | 16 | 本地数据库（SQLite） | **已落地**：`Db.open(name?)` 返回实例，实例上 `exec()` / `run()` / `get()` / `all()` / `close()`（见 `../doc/db.md`）。库文件默认在数据目录 `db/` 下，也可给完整路径自己指定。安全上**禁用 `ATTACH`**（否则任意 SQL 能绕过 `open` 的路径约束） |
 
 ## 规划中的能力（已列入待办）

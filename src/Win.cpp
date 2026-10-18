@@ -9,6 +9,7 @@
 #include "App.h"
 #include "Db.h"
 #include "Dialog.h"
+#include "Tray.h"
 #include "Env.h"
 #include "Json.h"
 #include "Menu.h"
@@ -474,7 +475,9 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		Dialog::removeByPage(winObj->page.get()); // 本页排着的对话框请求：窗口没了就弹不了
 		Db::removeByPage(winObj->page.get());     // 本页开的数据库连接一起关：不然文件锁一直占着
 		removeWin(winObj);
-		if (App::get()->getQuitWhenNoWindow() && winDic.empty()) PostQuitMessage(0);
+		// 有托盘图标就不自动退：托盘的主场景就是"关掉窗口、应用留在托盘里继续跑"，
+		// 这时候要不要退出交给应用自己在托盘菜单里放个"退出"项决定
+		if (App::get()->getQuitWhenNoWindow() && winDic.empty() && !Tray::hasInstance()) PostQuitMessage(0);
 		return 0;
 	}
 	}
