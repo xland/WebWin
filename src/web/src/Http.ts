@@ -1,4 +1,13 @@
-import { Ipc } from './Ipc';
+import { Ipc, SharedBufferData } from './Ipc';
+
+/**
+ * 响应体怎么给。**跟 `fs.readFile` 的 encoding 是同一个概念、同一套取值**。
+ *
+ * - `utf8`（默认）：当文本解。二进制内容会被**破坏**，非 UTF-8 的文本会出乱码
+ * - `base64`：二进制无损，代价是体积涨 1/3
+ * - `binary`：字节走共享内存，返回 `HttpBinaryResponse`（带 ArrayBuffer）
+ */
+export type HttpEncoding = 'utf8' | 'base64' | 'binary';
 
 /** `Http.fetch()` 的可选项 */
 export interface HttpFetchOptions {
@@ -11,9 +20,16 @@ export interface HttpFetchOptions {
 	 * 并带上 `content-type: application/json`（原生层不会替你猜）
 	 */
 	body?: string;
+	/**
+	 * 响应体怎么给，默认 `utf8`。取值见 `HttpEncoding`。
+	 *
+	 * 这跟响应头里的字符集（`content-type: text/html; charset=gbk`）**不是一回事**：
+	 * 这里说的是"字节怎么过消息通道交给你"，原生层不会替你按字符集解码
+	 */
+	encoding?: HttpEncoding;
 }
 
-/** C++ 回传的原始数据 */
+/** C++ 回传的原始数据（文本模式） */
 interface FetchData {
 	ok: boolean;
 	status: number;
@@ -52,7 +68,12 @@ export class HttpResponse {
 		this.body = data.body ?? '';
 	}
 
-	/** 响应体原文 */
+	/**
+	 * 响应体原文。
+	 *
+	 * 这是**按 UTF-8 解出来的文本**（默认 encoding）。拿二进制会被破坏 ——
+	 * 那种情况要改用 `encoding: 'base64'` 或 `'binary'`
+	 */
 	async text(): Promise<string> {
 		return this.body;
 	}
@@ -61,6 +82,25 @@ export class HttpResponse {
 	async json<T = unknown>(): Promise<T> {
 		return JSON.parse(this.body) as T;
 	}
+}
+
+/**
+ * `encoding: 'binary'` 时的返回：响应体字节走共享内存，不进 JSON。
+ *
+ * 状态行和响应头**照常是普通字段**（它们小，没必要走共享内存），
+ * 只有 `buffer` 是共享内存里的字节。用完必须 `release()`。
+ */
+export interface HttpBinaryResponse extends SharedBufferData {
+	/** 2xx / 3xx 为 true。4xx / 5xx **不会**让 fetch 失败，要看这个字段 */
+	ok: boolean;
+	/** HTTP 状态码 */
+	status: number;
+	/** 状态文本，如 `'OK'` */
+	statusText: string;
+	/** 响应头，key 统一小写（跟 web 的 `Headers` 一个规矩） */
+	headers: Record<string, string>;
+	/** 响应体字节数 */
+	size: number;
 }
 
 /**
@@ -76,6 +116,14 @@ export class HttpResponse {
  * ```ts
  * const res = await Http.fetch('https://api.example.com/v1/ping');
  * if (res.ok) console.log(await res.json());
+ * ```
+ *
+ * 要拿**二进制**（图片、zip、protobuf）必须指定 `encoding`，否则会被当文本解而破坏：
+ *
+ * ```ts
+ * const png = await Http.fetch(url, { encoding: 'binary' });
+ * png.buffer;      // ArrayBuffer，走共享内存
+ * png.release();   // 用完必须还
  * ```
  */
 export class Http extends Ipc {
@@ -103,8 +151,13 @@ export class Http extends Ipc {
 	 * });
 	 * ```
 	 */
-	static async fetch(url: string, options: HttpFetchOptions = {}): Promise<HttpResponse> {
-		const data = await Http.request<FetchData>(Http.domain, 'fetch', { url, ...options });
-		return new HttpResponse(data);
+	static fetch(url: string, options?: HttpFetchOptions & { encoding?: 'utf8' | 'base64' }): Promise<HttpResponse>;
+	static fetch(url: string, options: HttpFetchOptions & { encoding: 'binary' }): Promise<HttpBinaryResponse>;
+	static async fetch(url: string, options: HttpFetchOptions = {}): Promise<HttpResponse | HttpBinaryResponse> {
+		const encoding = options.encoding ?? 'utf8';
+		const data = await Http.request<FetchData | HttpBinaryResponse>(Http.domain, 'fetch', { url, ...options });
+		// binary 模式下 C++ 把元数据放在 data 里、字节走共享内存，
+		// Ipc 收到后已经把 buffer / release 并进同一个对象了
+		return encoding === 'binary' ? (data as HttpBinaryResponse) : new HttpResponse(data as FetchData);
 	}
 }

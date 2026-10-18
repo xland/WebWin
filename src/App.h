@@ -8,6 +8,9 @@
 #include <wrl.h>
 #include <WebView2.h>
 #include <winrt/Windows.Data.Json.h>
+// DispatcherQueue：App 启动时给 UI 线程建了个控制器（见 runLater 的说明）。
+// 把它暴露出来，是因为 Async 要用 resume_foreground 明确排回这个队列
+#include <winrt/Windows.System.h>
 
 #include "Page.h"
 
@@ -39,6 +42,18 @@ public:
 	 * 否则请求永远不回包，页面里那个 Promise 会一直挂着，而且没有任何报错
 	 */
 	static bool runLater(std::function<void()> fn);
+	/**
+	 * UI 线程的任务队列本体（`runLater` 内部就是往它里面 TryEnqueue）。
+	 *
+	 * 单独暴露是给"想用协程回到 UI 线程"的调用方用的（Async 用
+	 * `co_await winrt::resume_foreground(App::dispatcherQueue())`）。
+	 * **没初始化时是 nullptr** —— 调用方必须先判空，往 nullptr 上 resume 没有意义。
+	 *
+	 * 为什么不用 `winrt::apartment_context` 那种写法：它靠 C++/WinRT 的单元记账，
+	 * 而本进程是用 `CoInitializeEx` 起 COM 的（`main.cpp`），没走 `winrt::init_apartment`，
+	 * 那条路能不能正确回到本线程没有保证。明确指名 DispatcherQueue 就没有这个疑问
+	 */
+	static winrt::Windows::System::DispatcherQueue dispatcherQueue();
 	// 处理 type=app 域的消息：按 method 分发到本域的具体动作
 	static void handleApi(const std::wstring& method, const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame = nullptr);
 	static std::filesystem::path getDataPath();

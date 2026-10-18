@@ -113,6 +113,12 @@ bool App::runLater(std::function<void()> fn)
     return dispatcherCtrl.DispatcherQueue().TryEnqueue([fn = std::move(fn)] { fn(); });
 }
 
+winrt::Windows::System::DispatcherQueue App::dispatcherQueue()
+{
+    // 声明见 App.h：调用方必须判空（Async::run 就是先判空再开工的）
+    return dispatcherCtrl ? dispatcherCtrl.DispatcherQueue() : nullptr;
+}
+
 void App::initDataPath()
 {
     PWSTR pathTmp = nullptr;

@@ -1,8 +1,5 @@
 #pragma once
-#include <map>
-#include <mutex>
 #include <string>
-#include <vector>
 // wrl.h 必须在 winrt 头之前：C++/WinRT 的命名空间要靠它先铺好，
 // 少了下面那句 using namespace winrt::... 会报 C2760（Tray.h / Menu.h 都是这个顺序）
 #include <wrl.h>
@@ -29,8 +26,8 @@ using namespace winrt::Windows::Data::Json;
  * 服务端不白名单就拒。走 C++ 的 WinHTTP 不经过渲染进程，根本没有 CORS 这回事。
  *
  * **请求跑在后台线程上**：网络请求不能在 WebMessageReceived 的回调栈里同步跑，
- * 那会把 UI 线程卡死（窗口拖都拖不动）。所以 handleApi 只登记"谁在等"就返回，
- * 真正发请求的是 std::thread，完了用 App::runLater 回到 UI 线程回包。
+ * 那会把 UI 线程卡死（窗口拖都拖不动）。线程和"页面还在不在"的判定统一由
+ * Async 管（见 Async.h），本域只管 WinHTTP 本身。
  *
  * 本域目前只有 fetch。将来的 createServer（监听端口）也归这里 —— 那件事不可能
  * 纯 JS 做。见 arch/99-todo.md
@@ -44,9 +41,6 @@ public:
 	 * 未知方法、或当场就错的（比如 url 为空）返回 false，让调用方照常回包（同 Dialog）
 	 */
 	static bool handleApi(const std::wstring& method, const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame = nullptr);
-
-	/** 页面没了：丢掉它在等的请求，否则回包时会用到悬挂的 Page* */
-	static void removeByPage(Page* page);
 
 private:
 	/**

@@ -578,7 +578,130 @@ declare class Dialog extends Ipc {
     itemInFolder(path: string): Promise<void>;
 }
 
+// ---- Fs ----
+/**
+ * `readFile` 的编码。
+ *
+ * - `utf8`（默认）：当文本读。**非 UTF-8 的内容会出乱码**，要原样字节用下面两个
+ * - `base64`：二进制内容无损，代价是字符串体积涨 1/3
+ * - `binary`：字节走共享内存，返回 ArrayBuffer。零拷贝、无膨胀，
+ *   但**用完必须 `release()`**，且 buffer 是只读的
+ */
+type FsEncoding = 'utf8' | 'base64' | 'binary';
+interface FsReadOptions {
+    /** 默认 `utf8` */
+    encoding?: FsEncoding;
+}
+interface FsWriteOptions {
+    /** `base64` 时把 data 当 base64 解成字节再写；默认 `utf8` */
+    encoding?: 'utf8' | 'base64';
+}
+/** `readFile` 用 `binary` 时的返回：字节走共享内存，不进 JSON */
+interface FsBinary extends SharedBufferData {
+    /** 字节数 */
+    size: number;
+}
+/**
+ * `stat()` 的返回。
+ *
+ * 是**纯数据**，不像 Node 的 `Stats` 那样带 `isFile()` 方法 —— 那些方法过不了
+ * 消息通道，所以一律给布尔字段。
+ */
+interface FsStats {
+    /** 字节数 */
+    size: number;
+    isFile: boolean;
+    isDirectory: boolean;
+    isSymbolicLink: boolean;
+    /** 只读属性（Windows 上才有意义） */
+    readonly: boolean;
+    hidden: boolean;
+    /** 最后修改时间，毫秒 */
+    mtimeMs: number;
+    /** 最后访问时间，毫秒 */
+    atimeMs: number;
+    /** 创建时间，毫秒 */
+    birthtimeMs: number;
+    /**
+     * 权限位。**近似值**：Windows 没有 POSIX 权限位，
+     * 只读给 `0o444`、否则给 `0o666`，不代表真实 ACL
+     */
+    mode: number;
+}
+/**
+ * 文件读写（fs 域）。
+ *
+ * **全部异步**，没有同步版本 —— 文件操作看着快，实际可能很慢：网络盘（UNC）、
+ * 被杀毒软件盯上的写入、几百 MB 的读取都能卡住几秒。而且操作跑在**后台线程**上，
+ * 不会把窗口冻住。
+ *
+ * **只管文件**：目录的创建 / 遍历 / 删除另归一处（见 arch/01-api.md 第 12 项），
+ * 所以这里没有 mkdir / readdir / rmdir。
+ *
+ * **相对路径以 package.json 所在目录为底**，跟 `path.resolve()` 一致。
+ * 不能用"进程当前目录"当基准 —— GUI 进程本来就没有有意义的 cwd，
+ * 而且 Windows 的文件对话框还会悄悄改掉它。
+ */
+declare class Fs extends Ipc {
+    private static readonly domain;
+    protected type: string;
+    /** `access()` 用的位掩码，跟 Node 的 `fs.constants` 一致 */
+    readonly constants: {
+        readonly F_OK: 0;
+        readonly X_OK: 1;
+        readonly W_OK: 2;
+        readonly R_OK: 4;
+    };
+    /**
+     * 读整个文件。
+     *
+     * ```ts
+     * const text = await fs.readFile('config.json');          // 当文本读
+     * const b64  = await fs.readFile('logo.png', 'base64');   // 二进制无损
+     * const bin  = await fs.readFile('big.zip', 'binary');    // ArrayBuffer
+     * bin.release();                                          // 用完必须还
+     * ```
+     */
+    readFile(path: string, options?: FsReadOptions | 'utf8' | 'base64'): Promise<string>;
+    readFile(path: string, options: 'binary' | {
+        encoding: 'binary';
+    }): Promise<FsBinary>;
+    /**
+     * 写文件（覆盖）。文件不存在就创建，**但不会自动建父目录**
+     * （Node 的 writeFile 也不建，静默建目录会把拼错的路径变成一堆垃圾目录）
+     */
+    writeFile(path: string, data: string, options?: FsWriteOptions): Promise<void>;
+    /** 追加到文件末尾；文件不存在就创建 */
+    appendFile(path: string, data: string, options?: FsWriteOptions): Promise<void>;
+    /** 删文件。文件不存在会 reject */
+    unlink(path: string): Promise<void>;
+    /** 复制文件；目标已存在时覆盖 */
+    copyFile(src: string, dest: string): Promise<void>;
+    /** 移动 / 改名；目标已存在时覆盖。跨盘也行 */
+    rename(oldPath: string, newPath: string): Promise<void>;
+    /** 取文件信息。不存在会 reject */
+    stat(path: string): Promise<FsStats>;
+    /**
+     * 检查能不能访问。默认只查存在（`F_OK`）。
+     *
+     * ```ts
+     * await fs.access(p, fs.constants.R_OK | fs.constants.W_OK);
+     * ```
+     *
+     * 权限位是**近似**的：Windows 没有 POSIX 权限，`W_OK` 只看只读属性，不查 ACL。
+     */
+    access(path: string, mode?: number): Promise<void>;
+}
+
 // ---- Http ----
+/**
+ * 响应体怎么给。**跟 `fs.readFile` 的 encoding 是同一个概念、同一套取值**。
+ *
+ * - `utf8`（默认）：当文本解。二进制内容会被**破坏**，非 UTF-8 的文本会出乱码
+ * - `base64`：二进制无损，代价是体积涨 1/3
+ * - `binary`：字节走共享内存，返回 `HttpBinaryResponse`（带 ArrayBuffer）
+ */
+type HttpEncoding = 'utf8' | 'base64' | 'binary';
 /** `Http.fetch()` 的可选项 */
 interface HttpFetchOptions {
     /** 请求方法，默认 GET。大小写不敏感 */
@@ -590,8 +713,15 @@ interface HttpFetchOptions {
      * 并带上 `content-type: application/json`（原生层不会替你猜）
      */
     body?: string;
+    /**
+     * 响应体怎么给，默认 `utf8`。取值见 `HttpEncoding`。
+     *
+     * 这跟响应头里的字符集（`content-type: text/html; charset=gbk`）**不是一回事**：
+     * 这里说的是"字节怎么过消息通道交给你"，原生层不会替你按字符集解码
+     */
+    encoding?: HttpEncoding;
 }
-/** C++ 回传的原始数据 */
+/** C++ 回传的原始数据（文本模式） */
 interface FetchData {
     ok: boolean;
     status: number;
@@ -620,10 +750,33 @@ declare class HttpResponse {
     private readonly body;
     /** @internal 由 `Http.fetch()` 构造，开发者不用自己 new */
     constructor(data: FetchData);
-    /** 响应体原文 */
+    /**
+     * 响应体原文。
+     *
+     * 这是**按 UTF-8 解出来的文本**（默认 encoding）。拿二进制会被破坏 ——
+     * 那种情况要改用 `encoding: 'base64'` 或 `'binary'`
+     */
     text(): Promise<string>;
     /** 按 JSON 解析响应体；不是合法 JSON 时抛 SyntaxError */
     json<T = unknown>(): Promise<T>;
+}
+/**
+ * `encoding: 'binary'` 时的返回：响应体字节走共享内存，不进 JSON。
+ *
+ * 状态行和响应头**照常是普通字段**（它们小，没必要走共享内存），
+ * 只有 `buffer` 是共享内存里的字节。用完必须 `release()`。
+ */
+interface HttpBinaryResponse extends SharedBufferData {
+    /** 2xx / 3xx 为 true。4xx / 5xx **不会**让 fetch 失败，要看这个字段 */
+    ok: boolean;
+    /** HTTP 状态码 */
+    status: number;
+    /** 状态文本，如 `'OK'` */
+    statusText: string;
+    /** 响应头，key 统一小写（跟 web 的 `Headers` 一个规矩） */
+    headers: Record<string, string>;
+    /** 响应体字节数 */
+    size: number;
 }
 /**
  * http 域：发 HTTP / HTTPS 请求。
@@ -638,6 +791,14 @@ declare class HttpResponse {
  * ```ts
  * const res = await Http.fetch('https://api.example.com/v1/ping');
  * if (res.ok) console.log(await res.json());
+ * ```
+ *
+ * 要拿**二进制**（图片、zip、protobuf）必须指定 `encoding`，否则会被当文本解而破坏：
+ *
+ * ```ts
+ * const png = await Http.fetch(url, { encoding: 'binary' });
+ * png.buffer;      // ArrayBuffer，走共享内存
+ * png.release();   // 用完必须还
  * ```
  */
 declare class Http extends Ipc {
@@ -660,7 +821,12 @@ declare class Http extends Ipc {
      * });
      * ```
      */
-    static fetch(url: string, options?: HttpFetchOptions): Promise<HttpResponse>;
+    static fetch(url: string, options?: HttpFetchOptions & {
+        encoding?: 'utf8' | 'base64';
+    }): Promise<HttpResponse>;
+    static fetch(url: string, options: HttpFetchOptions & {
+        encoding: 'binary';
+    }): Promise<HttpBinaryResponse>;
 }
 {};
 
@@ -780,12 +946,14 @@ declare class Tray extends Ipc {
  * 安装成功后，页面里可以直接使用：
  *   win            —— 当前窗口对象
  *   Win            —— 窗口类型，Win.create() 创建新窗口
- *   os / app / display / dialog / path —— 与窗口无关的全局单例能力
+ *   os / app / display / dialog / path / fs —— 与窗口无关的全局单例能力
  *   （dialog 虽是单例，但绑在当前窗口上：弹出来的框模态到当前窗口）
  *   path 是纯 JS 的字符串工具，不经过 C++
+ *   fs 只管文件，全部异步（跑在后台线程上），相对路径以应用基准目录为底
  *   Menu / Db / Tray —— 需要自己建实例的类型（Menu.create() / Db.open() / Tray.create()）
  *   Http —— 只有静态方法的类型（Http.fetch() 发请求，走 C++ 所以没有 CORS 限制）
  */
+
 
 
 
@@ -812,6 +980,8 @@ declare class Tray extends Ipc {
         display: Display;
         /** 系统对话框能力（全局单例，但绑在当前窗口上） */
         dialog: Dialog;
+        /** 文件读写（全局单例）。只管文件；全部异步，跑在后台线程上 */
+        fs: Fs;
         /** 菜单类型 */
         Menu: typeof Menu;
         /** 数据库类型：Db.open() 建连接，实例上再跑 SQL */

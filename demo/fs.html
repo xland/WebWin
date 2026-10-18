@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin 文件 API 演示</title>
+	<style>
+		body {
+			font-family: system-ui, "Microsoft YaHei", sans-serif;
+			margin: 0;
+			padding: 16px;
+			color: #222;
+		}
+
+		section {
+			background: #fff;
+			border: 1px solid #e3e3e6;
+			border-radius: 8px;
+			padding: 16px;
+			margin-bottom: 16px;
+		}
+
+		h2 {
+			font-size: 14px;
+			margin: 0 0 12px;
+			color: #444;
+		}
+
+		.first {
+			margin-top: 0;
+		}
+
+		.note {
+			font-size: 12px;
+			color: #888;
+			margin: 8px 0 0;
+		}
+
+		button {
+			font: inherit;
+			font-size: 13px;
+			padding: 6px 12px;
+			margin: 0 8px 8px 0;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+			background: #fff;
+			cursor: pointer;
+		}
+
+		button:hover {
+			background: #f0f0f2;
+		}
+
+		code {
+			background: #f4f4f5;
+			border-radius: 3px;
+			padding: 1px 4px;
+		}
+
+		textarea,
+		input {
+			font: inherit;
+			font-size: 13px;
+			padding: 5px 8px;
+			border: 1px solid #c8c8cc;
+			border-radius: 4px;
+			box-sizing: border-box;
+		}
+
+		textarea {
+			width: 100%;
+			height: 70px;
+			resize: vertical;
+			margin-bottom: 8px;
+		}
+
+		.path {
+			width: 100%;
+			margin-bottom: 8px;
+		}
+	</style>
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section class="first">
+		<h2>路径基准</h2>
+		<button onclick="showBase()">看相对路径落到哪</button>
+		<div class="note">
+			相对路径一律以 <b>package.json 所在目录</b>为底（跟 <code>path.resolve()</code> 一致）。
+			不能用"进程当前目录"当基准 —— GUI 进程没有有意义的 cwd，
+			而且 Windows 的文件对话框还会悄悄改掉它。
+		</div>
+	</section>
+
+	<section>
+		<h2>写 / 读 / 追加</h2>
+		<input id="path" class="path" value="demo-fs.txt">
+		<textarea id="data">第一行
+第二行</textarea>
+		<button onclick="demoWrite()">writeFile</button>
+		<button onclick="demoRead()">readFile</button>
+		<button onclick="demoAppend()">appendFile</button>
+		<div class="note">
+			默认按 UTF-8 读写。<b>不会自动建父目录</b> —— 目录不存在就直接报错。
+		</div>
+	</section>
+
+	<section>
+		<h2>信息 / 权限</h2>
+		<button onclick="demoStat()">stat</button>
+		<button onclick="demoAccess()">access（存在 / 不存在各一次）</button>
+		<div class="note">
+			<code>access</code> 默认只查存在。权限位是<b>近似</b>的：<code>W_OK</code> 只看只读属性，不查 ACL。
+		</div>
+	</section>
+
+	<section>
+		<h2>复制 / 改名 / 删除</h2>
+		<button onclick="demoCopyRename()">copyFile → rename → 读回</button>
+		<button onclick="demoUnlink()">unlink（删掉，再删一次看报错）</button>
+	</section>
+
+	<section>
+		<h2>二进制：base64 与 ArrayBuffer</h2>
+		<button onclick="demoBase64()">base64 往返（无损）</button>
+		<button onclick="demoBinary()">binary → ArrayBuffer，用完 release()</button>
+		<div class="note">
+			<code>binary</code> 走共享内存、不进 JSON，没有 base64 那 1/3 膨胀；
+			但 <b>buffer 只读，且用完必须 <code>release()</code></b>，不调会一直占着。
+		</div>
+	</section>
+
+	<script>
+		const P = () => document.getElementById('path').value.trim() || 'demo-fs.txt';
+
+		function showBase() {
+			log(`── 相对路径的落点`, 'ok');
+			for (const p of ['demo-fs.txt', 'data/a.json', '.']) {
+				log(`  ${JSON.stringify(p)} → ${path.resolve(p)}`);
+			}
+			log(`  应用基准目录：${path.resolve('.')}`, 'evt');
+			log(`  绝对路径原样用：${path.resolve('C:\\Temp\\a.txt')}`);
+			log(`  注意 \\a 这种没带盘符的仍依赖"当前盘"，别这么写`, 'err');
+		}
+
+		async function demoWrite() {
+			const p = P();
+			const data = document.getElementById('data').value;
+			log(`── writeFile(${JSON.stringify(p)})`, 'ok');
+			try {
+				await fs.writeFile(p, data);
+				log(`  写好了（${data.length} 字符）`, 'ok');
+			} catch (e) {
+				log(`  reject：${e.message}`, 'err');
+			}
+		}
+
+		async function demoRead() {
+			const p = P();
+			log(`── readFile(${JSON.stringify(p)})`, 'ok');
+			try {
+				const text = await fs.readFile(p);
+				log(`  读回 ${text.length} 字符：${JSON.stringify(text)}`, 'ok');
+			} catch (e) {
+				log(`  reject：${e.message}`, 'err');
+			}
+		}
+
+		async function demoAppend() {
+			const p = P();
+			log(`── appendFile(${JSON.stringify(p)}, "\\n追加一行")`, 'ok');
+			try {
+				await fs.appendFile(p, '\n追加一行');
+				log(`  追加完成，读回：${JSON.stringify(await fs.readFile(p))}`, 'ok');
+			} catch (e) {
+				log(`  reject：${e.message}`, 'err');
+			}
+		}
+
+		async function demoStat() {
+			const p = P();
+			log(`── stat(${JSON.stringify(p)})`, 'ok');
+			try {
+				const s = await fs.stat(p);
+				log(`  size=${s.size}  isFile=${s.isFile}  isDirectory=${s.isDirectory}`, 'ok');
+				log(`  readonly=${s.readonly}  hidden=${s.hidden}  mode=0${s.mode.toString(8)}`);
+				log(`  mtime=${new Date(s.mtimeMs).toLocaleString()}  birthtime=${new Date(s.birthtimeMs).toLocaleString()}`);
+				log(`  注意：没有 ctimeMs —— Windows 没有 POSIX 的 inode 变更时间`, 'evt');
+			} catch (e) {
+				log(`  reject：${e.message}`, 'err');
+			}
+		}
+
+		async function demoAccess() {
+			const p = P();
+			log(`── access`, 'ok');
+			try {
+				await fs.access(p);
+				log(`  存在：${p}`, 'ok');
+			} catch (e) {
+				log(`  不存在（预期）：${e.message}`, 'evt');
+			}
+			try {
+				await fs.access(p, fs.constants.R_OK | fs.constants.W_OK);
+				log(`  可读可写`, 'ok');
+			} catch (e) {
+				log(`  不可读写：${e.message}`, 'err');
+			}
+			try {
+				await fs.access('肯定不存在的文件-xyz.txt');
+				log(`  竟然存在？`, 'err');
+			} catch (e) {
+				log(`  不存在的文件 reject（预期）：${e.message}`, 'evt');
+			}
+		}
+
+		async function demoCopyRename() {
+			const p = P();
+			const copy = p.replace(/(\.[^.]+)?$/, '-copy$1');
+			const moved = p.replace(/(\.[^.]+)?$/, '-moved$1');
+			log(`── copyFile → rename → 读回`, 'ok');
+			try {
+				await fs.copyFile(p, copy);
+				log(`  复制到 ${copy}`, 'ok');
+				await fs.rename(copy, moved);
+				log(`  改名为 ${moved}`, 'ok');
+				log(`  读回：${JSON.stringify(await fs.readFile(moved))}`, 'ok');
+			} catch (e) {
+				log(`  reject：${e.message}`, 'err');
+			}
+		}
+
+		async function demoUnlink() {
+			const p = P();
+			const moved = p.replace(/(\.[^.]+)?$/, '-moved$1');
+			log(`── unlink(${JSON.stringify(moved)})`, 'ok');
+			try {
+				await fs.unlink(moved);
+				log(`  删掉了`, 'ok');
+			} catch (e) {
+				log(`  reject：${e.message}`, 'err');
+				return;
+			}
+			try {
+				await fs.unlink(moved);
+				log(`  竟然又能删？`, 'err');
+			} catch (e) {
+				log(`  再删一次 reject（预期）：${e.message}`, 'evt');
+			}
+		}
+
+		async function demoBase64() {
+			const p = P();
+			log(`── base64 往返（二进制无损）`, 'ok');
+			try {
+				// 拿一段含非 ASCII 的字节，证明往返无损
+				await fs.writeFile(p, '中文 + emoji 🎉 + \x00\x01\x02', { encoding: 'utf8' });
+				const b64 = await fs.readFile(p, 'base64');
+				log(`  base64（${b64.length} 字符）：${b64}`, 'ok');
+				const back = await fs.readFile(p, 'utf8');
+				log(`  解回原文：${JSON.stringify(back)}`, 'ok');
+			} catch (e) {
+				log(`  reject：${e.message}`, 'err');
+			}
+		}
+
+		async function demoBinary() {
+			const p = P();
+			log(`── binary → ArrayBuffer`, 'ok');
+			try {
+				await fs.writeFile(p, '0123456789');
+				const bin = await fs.readFile(p, 'binary');
+				log(`  size=${bin.size}  buffer=${bin.buffer.byteLength} 字节`, 'ok');
+				// Blob 会拷一份，所以先建 Blob 再 release：释放后 buffer 就不能再读了
+				const text = new TextDecoder().decode(new Uint8Array(bin.buffer));
+				log(`  内容：${JSON.stringify(text)}`, 'ok');
+				bin.release();
+				log(`  已 release()（不调会一直占着共享内存）`, 'evt');
+			} catch (e) {
+				log(`  reject：${e.message}`, 'err');
+			}
+		}
+
+		// ---------- 切换页面时清理 ----------
+		// fs 没有订阅，也没什么要撤的；留个空函数是因为外壳切换页面时会调它
+		function unsubscribeAll() { }
+	</script>
+</body>
+
+</html>

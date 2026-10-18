@@ -137,6 +137,18 @@
 		</div>
 	</section>
 
+	<section>
+		<h2>响应体：encoding</h2>
+		<button onclick="demoBinary()">binary —— 字节走共享内存，拿 ArrayBuffer</button>
+		<button onclick="demoBase64()">base64 —— 二进制无损</button>
+		<button onclick="demoBinaryVsText()">对比：同一个二进制 URL，默认 utf8 会破坏</button>
+		<div class="note">
+			默认 <code>utf8</code> 会把响应体<b>当文本解</b>，拿二进制会被<b>破坏</b>
+			（不是"乱码"那么轻 —— 字节直接丢）。<code>binary</code> 走共享内存，
+			<code>buffer</code> <b>只读</b>且用完必须 <code>release()</code>。
+		</div>
+	</section>
+
 	<script>
 		// ---------------------------------------------------------------- 发请求
 		function readForm(method) {
@@ -220,6 +232,56 @@
 				for (const [k, v] of Object.entries(res.headers)) log(`  ${k}: ${v.slice(0, 70)}`);
 				log(`  text() 前 80 字符：${JSON.stringify((await res.text()).slice(0, 80))}`);
 				log(`  json() 的 url 字段：${JSON.stringify((await res.json()).url)}`);
+			} catch (e) {
+				log(`  reject：${e.message}`, 'err');
+			}
+		}
+
+		// ---------------------------------------------------------------- encoding
+		const BIN_URL = 'https://httpbin.org/image/png'; // 返回一张 PNG，二进制
+
+		async function demoBinary() {
+			log('── encoding: "binary" —— 字节走共享内存', 'ok');
+			try {
+				const res = await Http.fetch(BIN_URL, { encoding: 'binary' });
+				log(`  status=${res.status}  ok=${res.ok}  size=${res.size}`, 'ok');
+				log(`  content-type=${res.headers['content-type']}`);
+				log(`  buffer=${res.buffer.byteLength} 字节（ArrayBuffer）`, 'ok');
+				// 看 PNG 的文件头，证明字节是原样到手的
+				const head = [...new Uint8Array(res.buffer.slice(0, 8))]
+					.map(b => b.toString(16).padStart(2, '0')).join(' ');
+				log(`  头 8 字节：${head}（89 50 4e 47 就是 PNG 魔数）`, 'ok');
+				res.release();
+				log('  已 release()（不调会一直占着共享内存）', 'evt');
+			} catch (e) {
+				log(`  reject：${e.message}`, 'err');
+			}
+		}
+
+		async function demoBase64() {
+			log('── encoding: "base64" —— 二进制无损', 'ok');
+			try {
+				const res = await Http.fetch(BIN_URL, { encoding: 'base64' });
+				const b64 = await res.text();
+				const bytes = atob(b64).length;
+				log(`  base64 ${b64.length} 字符 → 解回 ${bytes} 字节（${(b64.length / bytes).toFixed(2)} 倍）`, 'ok');
+				log(`  开头：${b64.slice(0, 24)}…（iVBORw0 就是 PNG 的 base64 前缀）`, 'ok');
+			} catch (e) {
+				log(`  reject：${e.message}`, 'err');
+			}
+		}
+
+		async function demoBinaryVsText() {
+			log('── 对比：同一个二进制 URL', 'ok');
+			try {
+				const bad = await Http.fetch(BIN_URL); // 默认 utf8
+				const chars = (await bad.text()).length;
+				const good = await Http.fetch(BIN_URL, { encoding: 'base64' });
+				const bytes = atob(await good.text()).length;
+				log(`  utf8  ：${chars} 个字符`, 'err');
+				log(`  base64：解回 ${bytes} 字节`, 'ok');
+				log(`  字符数 ≠ 字节数 —— utf8 那趟的字节已经被破坏`, 'evt');
+				log(`  下载文件 / 图片 / protobuf 必须指定 encoding`, 'evt');
 			} catch (e) {
 				log(`  reject：${e.message}`, 'err');
 			}

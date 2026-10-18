@@ -8,6 +8,7 @@
 #include "Dialog.h"
 #include "Display.h"
 #include "Env.h"
+#include "Fs.h"
 #include "Http.h"
 #include "Menu.h"
 #include "Os.h"
@@ -270,6 +271,8 @@ void Page::handleMessage(const wchar_t* json, ICoreWebView2Frame2* frame)
         else if (type == L"tray") Tray::handleApi(method, params, this, result, frame);
     // http 的请求跑在后台线程上，响应晚点到：handleApi 返回 true 时调用方不要再发
     else if (type == L"http") sent = Http::handleApi(method, params, this, result, frame);
+    // fs 的文件操作同样跑在后台线程（网络盘 / 大文件会卡住 UI 线程），同 http 一条路
+    else if (type == L"fs") sent = Fs::handleApi(method, params, this, result, frame);
         else if (type == L"display") sent = Display::handleApi(method, params, this, result, frame);
         // 弹框不能当场执行（回调里开模态循环会被 Runtime 判重入），
         // 所以 handleApi 返回"是否已自行发回响应"，由它决定要不要再发一次信封

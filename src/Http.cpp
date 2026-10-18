@@ -2,29 +2,17 @@
 
 #include <algorithm>
 #include <cwctype>
-#include <thread>
 
-#include "App.h"
+#include "Async.h"
 #include "Json.h"
 #include "Util.h"
 
 /**
  * http 域的实现。
  *
- * 数据流向：
- *   JS Http.fetch → handleApi（UI 线程）→ 登记 pending → std::thread
- *                                                        ↓
- *                                            doFetch（后台线程，WinHTTP 同步 API）
- *                                                        ↓
- *                            App::runLater → finish（回到 UI 线程）→ page->send
- *
- * 两条硬约束，顺序不能反：
- * 1. 网络请求绝不能在 UI 线程上跑（会卡死窗口），所以必须开线程；
- * 2. page->send 必须在 UI 线程上跑（WebView2 的要求），所以回来要走 runLater。
- *
- * 而"页面还在不在"这件事**必须在 UI 线程上查**：Page 的销毁（Win 的 WM_DESTROY
- * → Http::removeByPage）也发生在 UI 线程上，两者互斥。因此在 finish() 里查到的
- * Page* 一定是有效的 —— 要是在后台线程里查，查完到 send 之间窗口可能就没了。
+ * 发请求跑在后台线程上，但**线程和页面生命周期不归本文件管** ——
+ * 那是 Async 的活（见 Async.h 头部的流程图）。这里只负责两件事：
+ * 把 JS 给的参数整理成 WinHTTP 要的形状，以及把 doFetch 的结果转成 JSON。
  */
 namespace
 {
@@ -38,17 +26,20 @@ namespace
 		std::wstring error;    // 非空 = 网络层就失败了，上面那些都没意义
 	};
 
-	/** 一个"正在等回包"的请求 */
-	struct Pending
+	/**
+	 * 装 status / statusText / headers / ok —— 三种 encoding 都要这几项，抽出来免得抄三遍
+	 */
+	void setMeta(JsonObject& data, int status, const std::wstring& statusText,
+		const std::map<std::wstring, std::wstring>& headers, bool ok)
 	{
-		Page* page{ nullptr };
-		ComPtr<ICoreWebView2Frame2> frame;
-		JsonObject result{ nullptr };
-	};
-
-	std::mutex mtx;
-	int lastId{ 0 };
-	std::map<int, Pending> pendings;
+		JsonObject hs;
+		for (const auto& [k, v] : headers)
+			hs.SetNamedValue(k.c_str(), JsonValue::CreateStringValue(v.c_str()));
+		data.SetNamedValue(L"status", JsonValue::CreateNumberValue(status));
+		data.SetNamedValue(L"statusText", JsonValue::CreateStringValue(statusText));
+		data.SetNamedValue(L"headers", hs);
+		data.SetNamedValue(L"ok", JsonValue::CreateBooleanValue(ok));
+	}
 
 	/** 掐掉首尾空白和 CR */
 	std::wstring trim(const std::wstring& s)
@@ -57,22 +48,6 @@ namespace
 		while (b < e && (s[b] == L' ' || s[b] == L'\t')) ++b;
 		while (e > b && (s[e - 1] == L' ' || s[e - 1] == L'\t' || s[e - 1] == L'\r')) --e;
 		return s.substr(b, e - b);
-	}
-
-	/**
-	 * 错误码转成能看的消息。
-	 * WinHTTP 自己的错误码不在系统消息表里，FormatMessage 常常查不出来，
-	 * 所以**一定把数字带上** —— 那才是能拿去查的东西
-	 */
-	std::wstring winErr(DWORD code)
-	{
-		LPWSTR buf = nullptr;
-		auto n = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
-			FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, code, 0, reinterpret_cast<LPWSTR>(&buf), 0, nullptr);
-		auto msg = (n && buf) ? trim(std::wstring{ buf, n }) : std::wstring{};
-		if (buf) LocalFree(buf);
-		if (msg.empty()) msg = L"未知错误";
-		return msg + L"（WinHTTP 错误码 " + std::to_wstring(code) + L"）";
 	}
 
 	/** 把 RAW_HEADERS_CRLF 那一大块按行拆成 key/value；同名头用 ", " 接起来（HTTP 的规矩） */
@@ -138,7 +113,7 @@ namespace
 			if (session) WinHttpCloseHandle(session);
 		};
 		auto fail = [&](const std::wstring& what) {
-			out.error = what + L"：" + winErr(GetLastError());
+			out.error = what + L"：" + Util::winErr(GetLastError());
 			cleanup();
 			return out;
 		};
@@ -216,57 +191,12 @@ namespace
 		return out;
 	}
 
-	/**
-	 * 回到 UI 线程后把结果装进信封发出去。**只**由 App::runLater 排下的任务调用。
-	 * 必须在这里（UI 线程上）查 pending 还在不在 —— 见本文件开头的说明
-	 */
-	void finish(int id, const FetchResult& r)
-	{
-		Pending p;
-		{
-			std::lock_guard<std::mutex> lock(mtx);
-			auto it = pendings.find(id);
-			if (it == pendings.end()) return; // 页面已销毁：被 removeByPage 清掉了
-			p = std::move(it->second);
-			pendings.erase(it);
-		} // 锁要在 send 之前放掉：send 可能连锁触发新请求，别自己把自己锁住
-
-		if (!r.error.empty())
-		{
-			Json::setError(p.result, r.error);
-			p.page->send(p.result, p.frame.Get());
-			return;
-		}
-
-		JsonObject headers;
-		for (const auto& [k, v] : r.headers)
-			headers.SetNamedValue(k.c_str(), JsonValue::CreateStringValue(v.c_str()));
-
-		JsonObject data;
-		data.SetNamedValue(L"status", JsonValue::CreateNumberValue(r.status));
-		data.SetNamedValue(L"statusText", JsonValue::CreateStringValue(r.statusText));
-		data.SetNamedValue(L"headers", headers);
-		// 响应体按 UTF-8 解：非 UTF-8 的内容（比如 GBK 页面）会出乱码，v1 不管
-		data.SetNamedValue(L"body", JsonValue::CreateStringValue(Util::utf8ToWide(r.body)));
-		// ok = 2xx / 3xx，跟 web fetch 一致；4xx / 5xx 也 resolve，不 reject
-		data.SetNamedValue(L"ok", JsonValue::CreateBooleanValue(r.status >= 200 && r.status < 400));
-
-		Json::setOk(p.result);
-		p.result.SetNamedValue(L"data", data);
-		p.page->send(p.result, p.frame.Get());
-	}
 }
 
 bool Http::handleApi(const std::wstring& method, const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
 {
 	if (method != L"fetch") return false; // 交给调用方回 unknown method（同 Dialog）
 	return fetch(params, page, result, frame);
-}
-
-void Http::removeByPage(Page* page)
-{
-	std::lock_guard<std::mutex> lock(mtx);
-	std::erase_if(pendings, [page](const auto& kv) { return kv.second.page == page; });
 }
 
 bool Http::fetch(const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
@@ -297,37 +227,47 @@ bool Http::fetch(const JsonObject& params, Page* page, JsonObject& result, ICore
 	// 请求体按 UTF-8 编码送出去
 	auto body = Util::wideToUtf8(Json::getString(params, L"body", L""));
 
-	int id = 0;
-	{
-		std::lock_guard<std::mutex> lock(mtx);
-		id = ++lastId;
-		Pending p;
-		p.page = page;
-		p.frame = frame;
-		p.result = result; // JsonObject 是引用语义：这就是外面那个信封
-		pendings.emplace(id, std::move(p));
-	}
+	// 响应体怎么给：默认按 UTF-8 解成文本；base64 无损；binary 走共享内存
+	auto encoding = Json::getString(params, L"encoding", L"utf8");
 
-	try
+	// 交给 Async：doFetch 跑在后台线程上，data 回调回到 UI 线程才组装 JSON
+	auto started = Async::run(page, result, frame,
+		[url, method, headersText, body = std::move(body), encoding] {
+		auto r = doFetch(url, method, headersText, body);
+		if (!r.error.empty()) return AsyncResult::fail(r.error);
+		// ok = 2xx / 3xx，跟 web fetch 一致；4xx / 5xx 也 resolve，不 reject
+		auto ok = r.status >= 200 && r.status < 400;
+
+		// binary：字节走共享内存，页面拿到 ArrayBuffer。不进 JSON，
+		// 既省掉 base64 那 1/3 膨胀，也避免大响应体在 JSON 里被整块拷一次
+		if (encoding == L"binary")
+		{
+			auto size = r.body.size();
+			// 只捕获元数据、不捕获 body：大响应体不该在 UI 线程回调里再多留一份
+			return AsyncResult::binary(std::vector<uint8_t>(r.body.begin(), r.body.end()),
+				[status = r.status, statusText = r.statusText, headers = r.headers, ok, size] {
+				JsonObject data;
+				setMeta(data, status, statusText, headers, ok);
+				data.SetNamedValue(L"size", JsonValue::CreateNumberValue(static_cast<double>(size)));
+				return data;
+			});
+		}
+
+		// base64 把原始字节无损编成字符串；utf8 直接解成文本（非 UTF-8 的内容会出乱码）
+		auto text = Util::utf8ToWide(encoding == L"base64" ? Util::toBase64(r.body) : r.body);
+		// 按拷贝捕获：std::function 要求可拷贝，搬进去就出不来了
+		return AsyncResult::ok([status = r.status, statusText = r.statusText,
+			headers = r.headers, ok, text = std::move(text)] {
+			JsonObject data;
+			setMeta(data, status, statusText, headers, ok);
+			data.SetNamedValue(L"body", JsonValue::CreateStringValue(text));
+			return data;
+		});
+	});
+	if (!started)
 	{
-		// detach 是因为没人等它 —— 结果靠 runLater 送回 UI 线程
-		std::thread([id, url, method, headersText, body = std::move(body)] {
-			// shared_ptr 是因为 std::function 要求可拷贝，而 FetchResult 搬进去就出不来了
-			auto r = std::make_shared<FetchResult>(doFetch(url, method, headersText, body));
-			if (!App::runLater([id, r] { finish(id, *r); }))
-			{
-				// 排不进去（应用正在退）：把这条撤了，别让它占着表
-				std::lock_guard<std::mutex> lock(mtx);
-				pendings.erase(id);
-			}
-		}).detach();
-	}
-	catch (...)
-	{
-		std::lock_guard<std::mutex> lock(mtx);
-		pendings.erase(id);
 		Json::setError(result, L"创建请求线程失败");
-		return false;
+		return false; // 当场就错：让调用方把这个 error 发回去
 	}
-	return true; // 已在后台跑起来：响应稍后由 finish() 发回
+	return true; // 已在后台跑起来：响应稍后由 Async 发回，调用方不要再发一次
 }

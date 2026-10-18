@@ -29,7 +29,8 @@ if (res.ok) console.log(await res.json());
 
 | 方法 | 返回 | 说明 |
 | --- | --- | --- |
-| `Http.fetch(url, options?)` | `Promise<HttpResponse>` | 发一个 HTTP / HTTPS 请求 |
+| `Http.fetch(url, options?)` | `Promise<HttpResponse>` | 发一个 HTTP / HTTPS 请求（文本 / base64 响应） |
+| `Http.fetch(url, { encoding: 'binary' })` | `Promise<HttpBinaryResponse>` | 同上，响应体**字节**走共享内存，拿到 ArrayBuffer |
 
 ### 参数
 
@@ -38,6 +39,7 @@ interface HttpFetchOptions {
 	method?: string;                    // 默认 GET，大小写不敏感
 	headers?: Record<string, string>;   // 请求头
 	body?: string;                      // 请求体
+	encoding?: 'utf8' | 'base64' | 'binary';  // 响应体怎么给，默认 utf8
 }
 ```
 
@@ -50,6 +52,34 @@ const res = await Http.fetch('https://api.example.com/login', {
 	body: JSON.stringify({ user: 'a', pwd: 'b' }),
 });
 ```
+
+## 响应体：`encoding`
+
+`encoding` 决定响应体的字节怎么交给你 —— **跟 `fs.readFile` 的 `encoding` 是同一个
+概念、同一套取值**，学一次两处通用。
+
+| encoding | 返回 | 适用 |
+| --- | --- | --- |
+| `utf8`（默认） | `HttpResponse`，`text()` 给字符串 | JSON、HTML、日志 |
+| `base64` | `HttpResponse`，`text()` 给 base64 字符串 | 二进制无损，体积涨 1/3 |
+| `binary` | `HttpBinaryResponse`，`buffer` 是 `ArrayBuffer` | 大响应、零拷贝 |
+
+```ts
+const png = await Http.fetch(url, { encoding: 'binary' });
+png.buffer;      // ArrayBuffer，走共享内存
+png.release();   // 用完必须还
+```
+
+> 默认 `utf8` 会把响应体**当文本解**，拿二进制会被**破坏** —— 不是"乱码"那么轻，
+> 字节直接丢了。下载文件、图片、protobuf 一定要指定 `encoding`。
+
+两个容易混的点：
+
+- 这跟响应头里的字符集（`content-type: text/html; charset=gbk`）**不是一回事**。
+  这里说的是"字节怎么过消息通道交给你"，原生层**不会**替你按字符集解码 ——
+  GBK 页面用默认 `utf8` 拿回来仍然是按 UTF-8 解的结果（乱码），
+  要原样字节就用 `base64` 或 `binary` 自己转。
+- `binary` 走共享内存，`buffer` **只读**且必须 `release()`（见下节）。
 
 ## 返回：`HttpResponse`
 
@@ -68,6 +98,31 @@ const res = await Http.fetch('https://api.example.com/login', {
 
 > body 在响应到达时就**整个**取回来了，没有流式。所以 `text()` / `json()`
 > 不会再发请求 —— 保留 `async` 只是为了跟 web fetch 的用法一致。
+
+## 返回：`HttpBinaryResponse`
+
+`encoding: 'binary'` 时返回的是这个，**不是 `HttpResponse`**：
+
+| 成员 | 类型 | 说明 |
+| --- | --- | --- |
+| `ok` | `boolean` | 2xx / 3xx 为 true |
+| `status` | `number` | HTTP 状态码 |
+| `statusText` | `string` | 状态文本 |
+| `headers` | `Record<string, string>` | 响应头，**key 统一小写** |
+| `size` | `number` | 响应体字节数 |
+| `buffer` | `ArrayBuffer` | 响应体字节，走共享内存。**只读** |
+| `release()` | `() => void` | 把共享内存还回去 |
+
+状态行和响应头**照常是普通字段** —— 它们小，没必要走共享内存，只有 `buffer` 是。
+
+`release()` **必须调**：不调会一直占着共享内存。而且 `buffer` 是**只读**的，
+往里写会让渲染进程崩。要留一份就先拷出来：
+
+```ts
+const res = await Http.fetch(url, { encoding: 'binary' });
+const blob = new Blob([res.buffer]);   // Blob 会拷一份
+res.release();                          // 之后 buffer 就不能再读了
+```
 
 ## 错误处理：什么会 reject，什么不会
 
@@ -103,9 +158,8 @@ try {
 
 都是"这次没做"，不是 bug：
 
-- **响应体按 UTF-8 解**。GBK 之类的页面会出乱码，需要自己转。
-- **不支持二进制**。下载文件、图片这类场景目前拿不到原始字节
-  （响应体会被当文本解，二进制内容会被破坏）。
+- **默认按 UTF-8 解响应体**。GBK 之类的页面会出乱码 —— 原生层不按字符集解码，
+  要原样字节就用 `encoding: 'base64'` / `'binary'` 自己转。
 - **同源的多个响应头会被合并**：重复的头用 `, ` 接起来（HTTP 的规矩），
   但 `set-cookie` 按规矩该是数组，这里也一起被合并了。
 - **没有流式 / 进度回调**：大响应要整个收完才 resolve。
@@ -117,7 +171,7 @@ try {
 - **`Http.createServer()`** —— 起一个 HTTP / HTTPS 服务器。已登记为待办
   （`arch/99-todo.md`），它不可能纯 JS 做，归在本域。
 - 超时 / 重定向策略 / 代理的可配置项
-- 二进制响应体、流式读取、下载进度
+- 流式读取、下载进度（`binary` 已经能拿到完整字节，但仍是"整个收完才 resolve"）
 - 连接池与 cookie 罐
 
 ## 实现说明
@@ -126,15 +180,29 @@ try {
 （会把 UI 线程卡死，窗口拖都拖不动），所以流程是：
 
 ```
-handleApi（UI 线程）→ 登记"谁在等" → std::thread
+handleApi（UI 线程）→ 登记"谁在等" → co_await resume_background()（WinRT 线程池）
                                        ↓
                            WinHTTP 同步发请求
                                        ↓
-              App::runLater → finish（回到 UI 线程）→ page->send
+        co_await resume_foreground(App::dispatcherQueue()) → finish → page->send
 ```
+
+去程用 **WinRT 线程池**：线程复用，并发多个请求也不会一个请求一条 OS 线程。
+回程**明确指名** UI 线程的 `DispatcherQueue` 而不是用 `winrt::apartment_context` ——
+后者靠 C++/WinRT 的单元记账，而本进程是用 `CoInitializeEx` 起 COM 的，
+没走 `winrt::init_apartment`，一旦没回到本线程就是"请求永远不回包、Promise 一直挂着"。
 
 两个约束都不能反：请求不能在 UI 线程上跑；`page->send` 又必须在 UI 线程上跑。
 而"页面还在不在"这件事**也必须在 UI 线程上查** —— 页面销毁
-（`Win` 的 `WM_DESTROY` → `Http::removeByPage`）同样发生在 UI 线程，两者互斥，
+（`Win` 的 `WM_DESTROY` → `Async::removeByPage`）同样发生在 UI 线程，两者互斥，
 所以在 `finish()` 里查到的 `Page*` 一定是有效的。放在后台线程里查就会有
 "刚查完、还没发，窗口没了"的窗口期。
+
+这套"后台线程 + 回 UI 线程"的机制**不是 http 域独有的**：它已抽成 `Async`
+（`src/Async.h`），`fs` 域的文件读写走同一条路，清理挂起的入口也统一成
+`Async::removeByPage` 一个。
+
+`encoding: 'binary'` 时字节走共享内存（`Page::postSharedBuffer`，跟
+`display.getImage`、`fs.readFile` 一条路），先 Post 再 Close。判据是显式的
+`viaBuffer` 标志而不是"字节数是否为 0" —— 0 字节的响应（204）也要给页面一个空
+`ArrayBuffer`，退化成普通响应的话页面拿到的是一个没有 `buffer` 字段的对象。
