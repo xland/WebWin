@@ -20,7 +20,7 @@ const outFile = path.join(root, 'dist', 'webwin.d.ts');
 
 // 输出顺序：Ipc 是基类放最前，各域随后，global 块放最后。
 // 新增能力域后要把它的 .d.ts 名字加到这里 —— 漏了构建会失败（见文件末尾的兜底检查）
-const order = ['Ipc', 'App', 'Menu', 'Os', 'Path', 'Win', 'Display', 'Dialog', 'Fs', 'Http', 'Process', 'Db', 'Tray', 'WebWin'];
+const order = ['Ipc', 'App', 'Menu', 'Os', 'Path', 'Win', 'Display', 'Dialog', 'Fs', 'Http', 'Process', 'Regedit', 'Db', 'Tray', 'WebWin'];
 
 /** 去掉 declare global { ... } 这一层，让内容回到顶层（合并后大家都在同一作用域） */
 function unwrapGlobal(text)

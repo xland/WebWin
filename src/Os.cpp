@@ -8,7 +8,8 @@
 #include <cstring>
 #include <intrin.h>
 #include <vector>
-#include <shlobj.h> // SHGetKnownFolderPath / FOLDERID_*
+#include <shlobj.h>  // SHGetKnownFolderPath / FOLDERID_*
+#include <wincred.h> // CredWrite / CredRead / CredDelete / CredEnumerate
 
 // JsonArray::Append 是 IVector 的方法，要显式带上集合头文件（Json.cpp 同理）
 #include <winrt/Windows.Foundation.Collections.h>
@@ -23,6 +24,10 @@ namespace {
 
 	// 本域唯一支持的事件
 	constexpr wchar_t EVENT_OS_LOCK[] = L"osLock";
+
+	// 凭据一律用"普通凭据"（CRED_TYPE_GENERIC）：凭据管理器里"Windows 凭据"那一栏，
+	// 存的是一段不透明的值，不绑定用户名
+	constexpr DWORD CRED_KIND = CRED_TYPE_GENERIC;
 
 	HWND sessionWindow{ nullptr }; // 接锁屏通知用的隐藏消息窗口
 
@@ -97,20 +102,23 @@ void Os::handleApi(const std::wstring& method, const JsonObject& params, Page* p
 	if (method == L"on") { on(page, params, result, frame); return; }
 	if (method == L"off") { off(page, params, result, frame); return; }
 
-	if (method == L"getOsVer") getOsVer(result);
+	if (method == L"getVersion") getVersion(result);
 	else if (method == L"getCpuId") getCpuId(result);
 	else if (method == L"getDiskId") getDiskId(result);
-	else if (method == L"getUserLang") getUserLang(result);
-	else if (method == L"getOsLang") getOsLang(result);
-	else if (method == L"getOsColor") getOsColor(result);
+	else if (method == L"getLang") getLang(params, result);
+	else if (method == L"getColor") getColor(result);
 	else if (method == L"getIpAddr") getIpAddr(result);
 	else if (method == L"getPath") getPath(params, result);
 	else if (method == L"preventSleep") preventSleep(result);
 	else if (method == L"stopPreventSleep") stopPreventSleep(result);
+	else if (method == L"credWrite") credWrite(params, result);
+	else if (method == L"credRead") credRead(params, result);
+	else if (method == L"credDelete") credDelete(params, result);
+	else if (method == L"credList") credList(params, result);
 	else Json::setError(result, L"unknown method: " + method);
 }
 
-void Os::getOsVer(JsonObject& result)
+void Os::getVersion(JsonObject& result)
 {
 	// 用 RtlGetVersion 而不是 GetVersionEx：后者受 manifest 里的兼容性声明影响，
 	// 新系统上不加对应的 supportedOS 就会报成旧版本
@@ -165,23 +173,23 @@ void Os::getDiskId(JsonObject& result)
 	result.SetNamedValue(L"data", JsonValue::CreateStringValue(buf));
 }
 
-void Os::getUserLang(JsonObject& result)
+void Os::getLang(const JsonObject& params, JsonObject& result)
 {
+	// 只有两种取值：写错了直接报错，不猜一个默认值 ——
+	// 这两个语言在多用户机器上不同，悄悄取错比报错更难查
+	auto scope = Json::getString(params, L"scope", L"");
+	auto langId = LANGID{ 0 };
+	if (scope == L"user") langId = GetUserDefaultLangID();
+	else if (scope == L"os") langId = GetSystemDefaultLangID();
+	else { Json::setError(result, L"scope 只能是 'user' 或 'os'"); return; }
+
 	std::wstring name;
-	if (!langName(GetUserDefaultLangID(), name)) { Json::setError(result, L"取用户语言失败"); return; }
+	if (!langName(langId, name)) { Json::setError(result, L"取语言失败"); return; }
 	Json::setOk(result);
 	result.SetNamedValue(L"data", JsonValue::CreateStringValue(name));
 }
 
-void Os::getOsLang(JsonObject& result)
-{
-	std::wstring name;
-	if (!langName(GetSystemDefaultLangID(), name)) { Json::setError(result, L"取系统语言失败"); return; }
-	Json::setOk(result);
-	result.SetNamedValue(L"data", JsonValue::CreateStringValue(name));
-}
-
-void Os::getOsColor(JsonObject& result)
+void Os::getColor(JsonObject& result)
 {
 	JsonObject data;
 	data.SetNamedValue(L"window", JsonValue::CreateStringValue(colorToHex(GetSysColor(COLOR_WINDOW))));
@@ -302,6 +310,115 @@ void Os::stopPreventSleep(JsonObject& result)
 {
 	SetThreadExecutionState(ES_CONTINUOUS); // 恢复默认：按电源策略自行休眠
 	Json::setOk(result);
+}
+
+/**
+ * 三个凭据方法共用的参数校验：key 必填且不能是空串。
+ *
+ * 空串也拒绝 —— 凭据管理器允许空名字，但那没有任何意义，
+ * 只会让人在"凭据管理器"里看到一条看不出是什么的条目
+ */
+static bool credKey(const JsonObject& params, std::wstring& key)
+{
+	key = Json::getString(params, L"key", L"");
+	return !key.empty();
+}
+
+void Os::credWrite(const JsonObject& params, JsonObject& result)
+{
+	std::wstring key;
+	if (!credKey(params, key)) { Json::setError(result, L"missing key"); return; }
+	auto value = Json::getString(params, L"value", L""); // 允许存空值
+
+	// TargetName 是**可写**的 LPWSTR（结构体里不是 const），所以拷一份
+	auto name = std::vector<wchar_t>(key.begin(), key.end());
+	name.push_back(L'\0');
+
+	CREDENTIALW cred{};
+	cred.Type = CRED_KIND;
+	cred.TargetName = name.data();
+	// 值按 UTF-16 原样存：JS 的字符串本来就是 UTF-16，
+	// 这样任何字符都能原样往返（转成 UTF-8 存，孤立的代理项会坏掉）
+	cred.CredentialBlobSize = static_cast<DWORD>(value.size() * sizeof(wchar_t));
+	cred.CredentialBlob = reinterpret_cast<LPBYTE>(value.data());
+	// 留在本机：不随用户配置漫游到域里的其它机器，只对当前用户可见
+	cred.Persist = CRED_PERSIST_LOCAL_MACHINE;
+	// 不给 UserName：普通凭据只有一段值，用户名/密码那套是"域凭据"的形态
+
+	if (!CredWriteW(&cred, 0)) { Json::setError(result, L"写凭据失败：" + Util::winErr(GetLastError())); return; }
+	Json::setOk(result);
+}
+
+void Os::credRead(const JsonObject& params, JsonObject& result)
+{
+	std::wstring key;
+	if (!credKey(params, key)) { Json::setError(result, L"missing key"); return; }
+
+	PCREDENTIALW cred = nullptr;
+	if (!CredReadW(key.c_str(), CRED_KIND, 0, &cred))
+	{
+		// "没存过"不算故障：按 fs.access 的口径给 null，调用方不必为"还没存"写 try/catch
+		if (GetLastError() == ERROR_NOT_FOUND)
+		{
+			Json::setOk(result);
+			result.SetNamedValue(L"data", JsonValue::CreateNullValue());
+			return;
+		}
+		Json::setError(result, L"读凭据失败：" + Util::winErr(GetLastError()));
+		return;
+	}
+
+	// CredentialBlobSize 给的是**字节数**，这里要的是 wchar_t 个数
+	std::wstring value(reinterpret_cast<wchar_t*>(cred->CredentialBlob),
+		cred->CredentialBlobSize / sizeof(wchar_t));
+	CredFree(cred);
+
+	Json::setOk(result);
+	result.SetNamedValue(L"data", JsonValue::CreateStringValue(value));
+}
+
+void Os::credDelete(const JsonObject& params, JsonObject& result)
+{
+	std::wstring key;
+	if (!credKey(params, key)) { Json::setError(result, L"missing key"); return; }
+	// 删的关键是"删完之后不存在"，所以本来就没有也算达成 —— 不报错（幂等）
+	if (!CredDeleteW(key.c_str(), CRED_KIND, 0) && GetLastError() != ERROR_NOT_FOUND)
+	{
+		Json::setError(result, L"删凭据失败：" + Util::winErr(GetLastError()));
+		return;
+	}
+	Json::setOk(result);
+}
+
+void Os::credList(const JsonObject& params, JsonObject& result)
+{
+	auto prefix = Json::getString(params, L"prefix", L"");
+	// filter 是前缀匹配，末尾必须带 *（CredEnumerate 的规矩）。
+	// 调用方按"以它开头"给前缀就行，这里的 * 自动补上
+	auto filter = prefix.empty() ? std::wstring{} : (prefix.back() == L'*' ? prefix : prefix + L'*');
+
+	DWORD count = 0;
+	PCREDENTIALW* list = nullptr;
+	if (!CredEnumerateW(filter.empty() ? nullptr : filter.c_str(), 0, &count, &list))
+	{
+		// 一条都没有时同样报 ERROR_NOT_FOUND：那是空集合，不是故障
+		if (GetLastError() == ERROR_NOT_FOUND)
+		{
+			Json::setOk(result);
+			result.SetNamedValue(L"data", JsonArray{});
+			return;
+		}
+		Json::setError(result, L"列凭据失败：" + Util::winErr(GetLastError()));
+		return;
+	}
+
+	// 只给 key（TargetName），不给值：要值就 credRead(key) 逐个读，拿的一定是最新的
+	JsonArray keys;
+	for (DWORD i = 0; i < count; ++i) keys.Append(JsonValue::CreateStringValue(list[i]->TargetName));
+	CredFree(list);
+
+	Json::setOk(result);
+	result.SetNamedValue(L"data", keys);
 }
 
 void Os::on(Page* page, const JsonObject& params, JsonObject& result, ICoreWebView2Frame2* frame)

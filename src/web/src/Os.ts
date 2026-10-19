@@ -38,6 +38,9 @@ export interface OsLockPayload {
 	locked: boolean;
 }
 
+/** `os.getLang` 的作用域：`'user'` = 当前用户，`'os'` = 系统 */
+export type LangScope = 'user' | 'os';
+
 /** `os.getPath` 支持的目录名 */
 export type OsPathName =
 	| 'home'      // 用户主目录（%USERPROFILE%）
@@ -62,12 +65,19 @@ export class Os extends Ipc {
 
 	protected type = Os.domain;
 
-	getOsVer(): Promise<OsVersion> { return this.call('getOsVer'); }
+	getVersion(): Promise<OsVersion> { return this.call('getVersion'); }
 	getCpuId(): Promise<string> { return this.call('getCpuId'); }
 	getDiskId(): Promise<string> { return this.call('getDiskId'); }
-	getUserLang(): Promise<string> { return this.call('getUserLang'); }
-	getOsLang(): Promise<string> { return this.call('getOsLang'); }
-	getOsColor(): Promise<OsColors> { return this.call('getOsColor'); }
+
+	/**
+	 * 取语言（区域名，如 `zh-CN`）。
+	 *
+	 * `scope`：`'user'` = **当前用户**的语言，`'os'` = **系统**的语言 ——
+	 * 两者在多用户机器上可能不同，所以这个参数不给默认值
+	 */
+	getLang(scope: LangScope): Promise<string> { return this.call('getLang', { scope }); }
+
+	getColor(): Promise<OsColors> { return this.call('getColor'); }
 	getIpAddr(): Promise<NetAdapter[]> { return this.call('getIpAddr'); }
 
 	/** 取系统常用目录的绝对路径（不带尾部分隔符） */
@@ -76,4 +86,36 @@ export class Os extends Ipc {
 	/** 阻止系统休眠（直到调用 stopPreventSleep 或进程退出） */
 	preventSleep(): Promise<void> { return this.call('preventSleep'); }
 	stopPreventSleep(): Promise<void> { return this.call('stopPreventSleep'); }
+
+	// ---------- 系统凭据管理器 ----------
+
+	/**
+	 * 写一条凭据。key 已存在则覆盖。
+	 *
+	 * 存在**本机**这一栏（CRED_PERSIST_LOCAL_MACHINE）：不随用户配置漫游到域里的
+	 * 其它机器，只对当前用户可见。值按 UTF-16 原样存，任何 JS 字符串都能原样往返
+	 */
+	credWrite(key: string, value: string): Promise<void> {
+		return this.call('credWrite', { key, value });
+	}
+
+	/** 读一条凭据。**没存过返回 `null`**（不 reject），系统级故障才 reject */
+	credRead(key: string): Promise<string | null> {
+		return this.call('credRead', { key });
+	}
+
+	/** 删一条凭据。本来就没有也不报错 —— 要的是"删完之后不存在"（幂等） */
+	credDelete(key: string): Promise<void> {
+		return this.call('credDelete', { key });
+	}
+
+	/**
+	 * 列出已存的凭据 key（不含值）。
+	 *
+	 * `prefix` 是前缀匹配；不给就列全部 —— 凭据管理器是**系统级共享空间**，
+	 * git、远程桌面这些也在里面存东西，它们会被一起列出来（只列 key，不含值）
+	 */
+	credList(prefix?: string): Promise<string[]> {
+		return this.call('credList', { prefix });
+	}
 }

@@ -11,6 +11,7 @@
  *   Menu / Db / Tray —— 需要自己建实例的类型（Menu.create() / Db.open() / Tray.create()）
  *   Http —— 只有静态方法的类型（Http.fetch() 发请求，走 C++ 所以没有 CORS 限制）
  *   Process —— 静态方法 Process.spawn() 启动子进程，返回进程对象
+ *   regedit —— 注册表单例（get / set / deleteKey / listKeys / listValues）
  */
 
 import { App } from './App';
@@ -24,6 +25,7 @@ import { Menu } from './Menu';
 import { Os } from './Os';
 import { Path } from './Path';
 import { Process } from './Process';
+import { Regedit } from './Regedit';
 import { Tray } from './Tray';
 import { Win } from './Win';
 
@@ -55,6 +57,8 @@ declare global {
 		Http: typeof Http;
 		/** 子进程类型：Process.spawn() 启动子进程，返回进程对象 */
 		Process: typeof Process;
+		/** 注册表单例（全局，与窗口无关） */
+		regedit: Regedit;
 	}
 }
 
@@ -76,4 +80,5 @@ if (config) {
 	window.Process = Process; // 子进程没有默认实例：必须自己 spawn
 	// 子进程的输出 / 退出事件由 Process 域自己在通道上登记钩子认领（见 Process.ts 末尾），
 	// 事件按子进程 id 送回**发起 spawn 的那个文档**，所以这里也不必接
+	window.regedit = new Regedit(); // 注册表没有"当前键"的概念：所有操作都带完整路径
 }

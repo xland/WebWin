@@ -7,6 +7,12 @@
 	<!-- 公共样式：所有演示页共用一套盒子 / 按钮 / 输入框，见 style.css -->
 	<link rel="stylesheet" href="style.css">
 	<style>
+		/* 凭据的输入：key 一行、value 一行 */
+		.cred {
+			width: 100%;
+			margin-bottom: 8px;
+		}
+
 		/* 色块是追加到外壳右侧那块**深色**日志区里的，所以字色用浅的 */
 		.swatch {
 			display: inline-block;
@@ -22,22 +28,22 @@
 <body>
 	<section>
 		<h2>系统标识</h2>
-		<button onclick="getOsVer()">os.getOsVer()</button>
+		<button onclick="getVersion()">os.getVersion()</button>
 		<button onclick="getCpuId()">os.getCpuId()</button>
 		<button onclick="getDiskId()">os.getDiskId()</button>
 		<div class="note">
-			getOsVer 拿的是真实系统版本（build ≥ 22000 时 versionName 为 win11）。
+			getVersion 拿的是真实系统版本（build ≥ 22000 时 versionName 为 win11）。
 			getCpuId / getDiskId 常用来做机器标识。
 		</div>
 	</section>
 
 	<section>
 		<h2>语言与配色</h2>
-		<button onclick="getUserLang()">os.getUserLang()</button>
-		<button onclick="getOsLang()">os.getOsLang()</button>
-		<button onclick="showColors()">os.getOsColor()（色块展示）</button>
+		<button onclick="getLang('user')">os.getLang('user')</button>
+		<button onclick="getLang('os')">os.getLang('os')</button>
+		<button onclick="showColors()">os.getColor()（色块展示）</button>
 		<div class="note">
-			getUserLang 是"当前用户"的语言，getOsLang 是"系统"的语言 ——
+			'user' 是"当前用户"的语言，'os' 是"系统"的语言 ——
 			两者在多用户机器上可能不同。
 		</div>
 	</section>
@@ -77,6 +83,22 @@
 	</section>
 
 	<section>
+		<h2>系统凭据管理器（os.cred*）</h2>
+		<input class="cred" id="credKey" value="WebWinDemo:token">
+		<input class="cred" id="credValue" value="hello">
+		<button onclick="credWrite()">credWrite()</button>
+		<button onclick="credRead()">credRead()</button>
+		<button onclick="credDelete()">credDelete()</button>
+		<button onclick="credList()">credList('WebWinDemo')</button>
+		<div class="note">
+			存到系统"凭据管理器"的<b>本机</b>那一栏：不随用户配置漫游到域里的其它机器，
+			只对当前用户可见。值按 UTF-16 原样存，任何字符都能原样往返。<br>
+			<b>读不到返回 null</b>（不 reject）；删一个本来没有的 key 也不报错。<br>
+			点完可以去 <b>控制面板 → 凭据管理器 → Windows 凭据</b> 看到这条记录。
+		</div>
+	</section>
+
+	<section>
 		<h2>锁屏事件（os.on）</h2>
 		<button onclick="subscribeOsLock()">订阅 osLock</button>
 		<button onclick="unsubscribeOsLock()">取消订阅</button>
@@ -88,13 +110,13 @@
 	<script>
 		// 每个按钮对应一个函数：调用哪句 API、成功失败各打什么，一眼看全。
 		// 有返回值的把返回值打出来（JSON），没有返回值的只打 ok
-		async function getOsVer() {
+		async function getVersion() {
 			try {
-				const data = await os.getOsVer();
-				log(`os.getOsVer() → ${JSON.stringify(data)}`, 'ok');
+				const data = await os.getVersion();
+				log(`os.getVersion() → ${JSON.stringify(data)}`, 'ok');
 			} catch (e) {
 				// C++ 返回的错误是字符串，不是 Error 对象，所以取 message 前要判断一下
-				log(`os.getOsVer() → 失败：${e && e.message ? e.message : e}`, 'err');
+				log(`os.getVersion() → 失败：${e && e.message ? e.message : e}`, 'err');
 			}
 		}
 
@@ -116,21 +138,12 @@
 			}
 		}
 
-		async function getUserLang() {
+		async function getLang(scope) {
 			try {
-				const data = await os.getUserLang();
-				log(`os.getUserLang() → ${data}`, 'ok');
+				const data = await os.getLang(scope);
+				log(`os.getLang(${JSON.stringify(scope)}) → ${data}`, 'ok');
 			} catch (e) {
-				log(`os.getUserLang() → 失败：${e && e.message ? e.message : e}`, 'err');
-			}
-		}
-
-		async function getOsLang() {
-			try {
-				const data = await os.getOsLang();
-				log(`os.getOsLang() → ${data}`, 'ok');
-			} catch (e) {
-				log(`os.getOsLang() → 失败：${e && e.message ? e.message : e}`, 'err');
+				log(`os.getLang(${JSON.stringify(scope)}) → 失败：${e && e.message ? e.message : e}`, 'err');
 			}
 		}
 
@@ -175,8 +188,8 @@
 		// 色块画在日志区里：外壳那一栏有 #log，这里往里追加一行
 		async function showColors() {
 			try {
-				const colors = await os.getOsColor();
-				log(`os.getOsColor() → ${JSON.stringify(colors)}`, 'ok');
+				const colors = await os.getColor();
+				log(`os.getColor() → ${JSON.stringify(colors)}`, 'ok');
 				const logBox = window.parent.document.getElementById('log') || document.getElementById('log');
 				const row = document.createElement('div');
 				for (const name in colors) {
@@ -194,7 +207,54 @@
 				logBox.appendChild(row);
 				logBox.scrollTop = logBox.scrollHeight;
 			} catch (e) {
-				log(`os.getOsColor() → 失败：${e && e.message ? e.message : e}`, 'err');
+				log(`os.getColor() → 失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// ---------- 系统凭据 ----------
+		function credKey() { return document.getElementById('credKey').value.trim(); }
+		function credValue() { return document.getElementById('credValue').value.trim(); }
+
+		async function credWrite() {
+			const key = credKey(), value = credValue();
+			log(`── os.credWrite(${JSON.stringify(key)}, ${JSON.stringify(value)})`);
+			try {
+				await os.credWrite(key, value);
+				log('  ok', 'ok');
+			} catch (e) {
+				log(`  失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function credRead() {
+			const key = credKey();
+			log(`── os.credRead(${JSON.stringify(key)})`);
+			try {
+				const data = await os.credRead(key);
+				log(`  → ${data === null ? 'null（没有这条凭据）' : JSON.stringify(data)}`, 'ok');
+			} catch (e) {
+				log(`  失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function credDelete() {
+			const key = credKey();
+			log(`── os.credDelete(${JSON.stringify(key)})`);
+			try {
+				await os.credDelete(key);
+				log('  ok（本来没有也不报错）', 'ok');
+			} catch (e) {
+				log(`  失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function credList() {
+			log(`── os.credList('WebWinDemo')`);
+			try {
+				const keys = await os.credList('WebWinDemo');
+				log(`  → ${JSON.stringify(keys)}`, 'ok');
+			} catch (e) {
+				log(`  失败：${e && e.message ? e.message : e}`, 'err');
 			}
 		}
 

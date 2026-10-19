@@ -17,12 +17,14 @@
 | 8 | 启动子进程（与子进程通信） | **部分落地**：`Process.spawn(file, args?, options?)` 启动子进程，返回进程对象；stdout / stderr / exit 三个事件推回**发起 spawn 的那个文档**（见 `../doc/process.md`）。**stdin 仍待做** —— 目前子进程的 stdin 是空设备（NUL）；`env` 选项、`proc.kill()` 也待做 |
 | 9 | 启动 HTTP 服务 | **发请求已落地**：`Http.fetch()`（走 C++ WinHTTP，**无 CORS 限制**，见 `../doc/http.md`）。**起服务待做**：`Http.createServer()` 已登记为 T014 |
 | 10 | 访问屏幕信息 | 显示器、分辨率、DPI 等。**已落地**：`display.getAll()` / `getPrimary()` / `getByPos()` / `getByRect()` / `getColor()` / `getImage()` + `display-added` / `display-removed`（见 `../doc/display.md`）。DPI 变化事件待定（T012） |
-| 11 | 访问版本信息 | **系统版本 / 框架版本 / 应用版本** 三类。**系统版本已落地**：`os.getOsVer()` |
+| 11 | 访问版本信息 | **系统版本 / 框架版本 / 应用版本** 三类。**系统版本已落地**：`os.getVersion()` |
 | 12 | 目录操作 API | 创建、遍历、删除等。**路径字符串运算已落地**：`path.join()` / `resolve()` / `normalize()` / `dirname()` / `basename()` / `extname()` / `parse()` / `format()` / `isAbsolute()` / `relative()` + Windows 专属的 `isValidName()` / `isValidPath()`（见 `../doc/path.md`）。**纯 JS、同步**，不经过 C++；目录的创建/遍历/删除仍待做 |
 | 13 | 访问常用目录 | 音乐、文档、数据目录等 |
 | 14 | 访问窗口 | 枚举窗口、向窗口发送消息 |
 | 15 | 右键菜单 | **已落地**：窗口的 `Menu.create()` / `win.setContextMenu()`（见 `../doc/menu.md`）；托盘的 `Tray.create({ menu })`（见 `../doc/tray.md`） |
 | 16 | 本地数据库（SQLite） | **已落地**：`Db.open(name?)` 返回实例，实例上 `exec()` / `run()` / `get()` / `all()` / `close()`（见 `../doc/db.md`）。库文件默认在数据目录 `db/` 下，也可给完整路径自己指定。安全上**禁用 `ATTACH`**（否则任意 SQL 能绕过 `open` 的路径约束） |
+| 17 | 系统凭据（凭据管理器） | **已落地**：`os.credWrite(key, value)` / `os.credRead(key)`（不存在返回 `null`）/ `os.credDelete(key)`（幂等）/ `os.credList(prefix?)`（只给 key，见 `../doc/os.md`）。一律"普通凭据"，存在**本机**这一栏：不漫游、只对当前用户可见 |
+| 18 | 注册表 | **已落地**：`regedit.get(key, name?)`（不存在返回 `null`）/ `regedit.set(key, name, value)`（键不存在时自动逐层建）/ `regedit.deleteKey(key)`（递归）/ `regedit.listKeys(key)` / `regedit.listValues(key)`（见 `../doc/regedit.md`）。键路径写成一整条，跟 reg.exe 一样；根键简写与全名都认。**写 HKLM 需要管理员** |
 
 ## 规划中的能力（已列入待办）
 

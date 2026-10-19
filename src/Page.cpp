@@ -13,6 +13,7 @@
 #include "Menu.h"
 #include "Os.h"
 #include "Process.h"
+#include "Regedit.h"
 #include "Win.h"
 #include "Page.h"
 #include "Json.h"
@@ -270,6 +271,7 @@ void Page::handleMessage(const wchar_t* json, ICoreWebView2Frame2* frame)
         else if (type == L"menu") Menu::handleApi(method, params, this, result, frame);
         else if (type == L"app") App::handleApi(method, params, this, result, frame);
         else if (type == L"process") Process::handleApi(method, params, this, result, frame);
+        else if (type == L"regedit") Regedit::handleApi(method, params, this, result, frame);
         else if (type == L"db") Db::handleApi(method, params, this, result, frame);
         else if (type == L"tray") Tray::handleApi(method, params, this, result, frame);
     // http 的请求跑在后台线程上，响应晚点到：handleApi 返回 true 时调用方不要再发

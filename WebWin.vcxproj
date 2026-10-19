@@ -109,6 +109,7 @@
     <ClCompile Include="src\Async.cpp" />
     <ClCompile Include="src\Fs.cpp" />
     <ClCompile Include="src\Process.cpp" />
+    <ClCompile Include="src\Regedit.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -131,6 +132,7 @@
     <ClInclude Include="src\Async.h" />
     <ClInclude Include="src\Fs.h" />
     <ClInclude Include="src\Process.h" />
+    <ClInclude Include="src\Regedit.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\Res.rc" />

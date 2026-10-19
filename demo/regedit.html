@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin 注册表 API 演示</title>
+	<!-- 公共样式：所有演示页共用一套盒子 / 按钮 / 输入框，见 style.css -->
+	<link rel="stylesheet" href="style.css">
+	<style>
+		/* 本页的输入：键一行、值名一行、值一行 */
+		.reg {
+			width: 100%;
+			margin-bottom: 8px;
+		}
+	</style>
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section>
+		<h2>读 / 写（regedit.get / set）</h2>
+		<input class="reg" id="key" value="HKCU\Software\WebWinDemo">
+		<input class="reg" id="name" value="greeting">
+		<input class="reg" id="value" value="hello">
+		<button onclick="regSet()">regedit.set()</button>
+		<button onclick="regGet()">regedit.get()</button>
+		<div class="note">
+			键写成一整条，跟 reg.exe 一样；根键那节 <code>HKCU</code> / <code>HKEY_CURRENT_USER</code>
+			都认，不分大小写。<br>
+			写的时候键不存在会<b>自动逐层创建</b>。类型按 value 的 JS 类型挑：
+			字符串 → <code>REG_SZ</code>，数字 → <code>REG_DWORD</code>（32 位放得下）
+			或 <code>REG_QWORD</code>。<br>
+			读不到（键或值不存在）返回 <b>null</b>，不 reject。
+		</div>
+	</section>
+
+	<section>
+		<h2>值类型</h2>
+		<button onclick="writeTypes()">写三种类型</button>
+		<button onclick="readTypes()">读回来（看 type）</button>
+		<div class="note">
+			读回来的 <code>data</code> 形态跟着 <code>type</code> 走：
+			字符串 / 数字 / 字符串数组（<code>REG_MULTI_SZ</code>）/ base64（<code>REG_BINARY</code>）。<br>
+			<code>REG_EXPAND_SZ</code> 里的 <code>%PATH%</code> 这类引用<b>不展开</b> ——
+			它是另一个类型，跟 <code>REG_SZ</code> 分开给的。
+		</div>
+	</section>
+
+	<section>
+		<h2>枚举</h2>
+		<button onclick="listValues()">regedit.listValues()</button>
+		<button onclick="listKeys()">regedit.listKeys()</button>
+		<div class="note">
+			listValues 列值名（<b>不含值</b>，要值就 get 逐个读）；
+			listKeys 列下一层的子键名。两者都不递归。
+		</div>
+	</section>
+
+	<section>
+		<h2>删键</h2>
+		<button onclick="deleteKey()">regedit.deleteKey()</button>
+		<div class="note">
+			<b>连子键和值一起删</b>（递归）；键本来就不在也不报错。<br>
+			删的是上面输入框里那个键 —— 别把它指向系统正在用的键。
+			想看效果就先用上面的按钮写两条值，再回来删。
+		</div>
+	</section>
+
+	<script>
+		// ---------- 取输入 ----------
+		function regKey() { return document.getElementById('key').value.trim(); }
+		function regName() { return document.getElementById('name').value.trim(); }
+
+		/** 看着像数字就按数字写（→ REG_DWORD / REG_QWORD），否则按字符串（→ REG_SZ） */
+		function regValue() {
+			const raw = document.getElementById('value').value.trim();
+			return raw !== '' && !isNaN(Number(raw)) ? Number(raw) : raw;
+		}
+
+		// ---------- 读写 ----------
+		async function regSet() {
+			const key = regKey(), name = regName(), value = regValue();
+			log(`── regedit.set(${JSON.stringify(key)}, ${JSON.stringify(name)}, ${JSON.stringify(value)})`);
+			try {
+				await regedit.set(key, name, value);
+				log('  ok', 'ok');
+			} catch (e) {
+				log(`  失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function regGet() {
+			const key = regKey(), name = regName();
+			log(`── regedit.get(${JSON.stringify(key)}, ${JSON.stringify(name)})`);
+			try {
+				const data = await regedit.get(key, name);
+				log(`  → ${data === null ? 'null（键或值不存在）' : JSON.stringify(data)}`, 'ok');
+			} catch (e) {
+				log(`  失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// ---------- 类型 ----------
+		/** 往同一个键里写三种类型，用来看读回来时 type 是什么 */
+		async function writeTypes() {
+			const key = regKey();
+			log(`── 往 ${JSON.stringify(key)} 写三种类型`);
+			const items = [['txt', '一段文本'], ['num', 42], ['big', 9007199254740993]];
+			for (const [name, value] of items) {
+				try {
+					await regedit.set(key, name, value);
+					log(`  ${name} = ${JSON.stringify(value)} → ok`, 'ok');
+				} catch (e) {
+					log(`  ${name} → 失败：${e && e.message ? e.message : e}`, 'err');
+				}
+			}
+		}
+
+		async function readTypes() {
+			const key = regKey();
+			log(`── 读回 ${JSON.stringify(key)}`);
+			for (const name of ['txt', 'num', 'big']) {
+				try {
+					const data = await regedit.get(key, name);
+					log(`  ${name} → ${data === null ? 'null' : JSON.stringify(data)}`, 'ok');
+				} catch (e) {
+					log(`  ${name} → 失败：${e && e.message ? e.message : e}`, 'err');
+				}
+			}
+		}
+
+		// ---------- 枚举 ----------
+		async function listValues() {
+			const key = regKey();
+			log(`── regedit.listValues(${JSON.stringify(key)})`);
+			try {
+				const names = await regedit.listValues(key);
+				log(`  → ${JSON.stringify(names)}`, 'ok');
+			} catch (e) {
+				log(`  失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		async function listKeys() {
+			const key = regKey();
+			log(`── regedit.listKeys(${JSON.stringify(key)})`);
+			try {
+				const names = await regedit.listKeys(key);
+				log(`  → ${JSON.stringify(names)}`, 'ok');
+			} catch (e) {
+				log(`  失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// ---------- 删键 ----------
+		async function deleteKey() {
+			const key = regKey();
+			log(`── regedit.deleteKey(${JSON.stringify(key)})`);
+			try {
+				await regedit.deleteKey(key);
+				log('  ok（本来没有也不报错）', 'ok');
+			} catch (e) {
+				log(`  失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// ---------- 启动 ----------
+		window.addEventListener('load', () => {
+			log(`SDK 就绪：regedit 对象${typeof regedit === 'undefined' ? '缺失' : '已注入'}`);
+		});
+	</script>
+</body>
+
+</html>

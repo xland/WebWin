@@ -3,7 +3,7 @@
 `window.os` 是**全局单例**——和窗口无关（不像 `win` 一个窗口一个实例）。
 
 ```ts
-const ver = await os.getOsVer();
+const ver = await os.getVersion();
 const id  = await os.getCpuId();
 ```
 
@@ -11,13 +11,15 @@ const id  = await os.getCpuId();
 
 | 方法 | 返回 |
 | --- | --- |
-| `os.getOsVer()` | 系统版本（见下） |
+| `os.getVersion()` | 系统版本（见下） |
 | `os.getCpuId()` | 机器标识字符串 |
 | `os.getDiskId()` | 系统盘序列号 |
-| `os.getUserLang()` | **当前用户**的语言（区域名，如 `zh-CN`） |
-| `os.getOsLang()` | **系统**的语言 |
+| `os.getLang(scope)` | 语言（区域名，如 `zh-CN`） |
 
-`getOsVer()` 返回值：
+`getLang(scope)` 的 `scope`：`'user'` = **当前用户**的语言，`'os'` = **系统**的语言。
+两者在多用户机器上可能不同，所以这个参数不给默认值。
+
+`getVersion()` 返回值：
 
 ```ts
 {
@@ -29,11 +31,9 @@ const id  = await os.getCpuId();
 }
 ```
 
-> `getUserLang` 与 `getOsLang` 在多用户机器上可能不同。
-
 ## 系统配色
 
-`os.getOsColor()` 返回系统当前主题的配色项（`#RRGGBB`）：
+`os.getColor()` 返回系统当前主题的配色项（`#RRGGBB`）：
 
 ```ts
 {
@@ -85,6 +85,35 @@ await os.getPath('downloads');  // "C:\Users\Alice\Downloads"
 await os.preventSleep();      // 阻止系统进入锁屏/休眠
 await os.stopPreventSleep();  // 恢复
 ```
+
+## 系统凭据管理器
+
+```ts
+await os.credWrite('MyApp:token', 'abc123');    // 写（key 已存在则覆盖）
+const v = await os.credRead('MyApp:token');     // 读；没存过 → null
+await os.credDelete('MyApp:token');             // 删（幂等）
+const keys = await os.credList('MyApp');        // 列 key（前缀匹配）
+```
+
+| 方法 | 返回 | 说明 |
+| --- | --- | --- |
+| `os.credWrite(key, value)` | `Promise<void>` | 写一条；key 已存在则覆盖 |
+| `os.credRead(key)` | `Promise<string \| null>` | 读；不存在返回 `null` |
+| `os.credDelete(key)` | `Promise<void>` | 删；本来就没有也不报错 |
+| `os.credList(prefix?)` | `Promise<string[]>` | 列出 key；不给 `prefix` 就列全部 |
+
+四点：
+
+- **值按 UTF-16 原样存**，所以任何 JS 字符串都能原样往返 ——
+  转成 UTF-8 存的话，孤立的代理项（半个 emoji）会坏掉
+- 凭据存在**本机**这一栏（`CRED_PERSIST_LOCAL_MACHINE`）：
+  不随用户配置漫游到域里的其它机器，只对当前用户可见
+- `credList` 的 `prefix` 是前缀匹配，末尾的 `*` 会自动补上
+- `credList` **只给 key，不给值** —— 要值就 `credRead(key)` 逐个读，
+  拿到的一定是最新的
+
+> 凭据管理器是**系统级的共享空间**：git、远程桌面这些也在里面存东西。
+> `credList` 不传 `prefix` 时会把它们一起列出来（只列 key，不含值）。
 
 ## 事件
 
