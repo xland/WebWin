@@ -12,6 +12,7 @@
 #include "Http.h"
 #include "Menu.h"
 #include "Os.h"
+#include "Process.h"
 #include "Win.h"
 #include "Page.h"
 #include "Json.h"
@@ -240,6 +241,7 @@ HRESULT Page::onFrameDestroyed(ICoreWebView2Frame* sender, IUnknown* args)
     Win::unsubscribeFrame(this, frame2.Get());
     Menu::removeByFrame(this, frame2.Get()); // 这个 iframe 建的菜单一起销毁
     Db::removeByFrame(this, frame2.Get());
+    Process::removeByFrame(this, frame2.Get()); // 这个 iframe 启动的子进程一起结束
     std::erase_if(frames, [&](const ComPtr<ICoreWebView2Frame2>& item) { return item.Get() == frame2.Get(); });
     return S_OK;
 }
@@ -267,6 +269,7 @@ void Page::handleMessage(const wchar_t* json, ICoreWebView2Frame2* frame)
         else if (type == L"os") Os::handleApi(method, params, this, result, frame);
         else if (type == L"menu") Menu::handleApi(method, params, this, result, frame);
         else if (type == L"app") App::handleApi(method, params, this, result, frame);
+        else if (type == L"process") Process::handleApi(method, params, this, result, frame);
         else if (type == L"db") Db::handleApi(method, params, this, result, frame);
         else if (type == L"tray") Tray::handleApi(method, params, this, result, frame);
     // http 的请求跑在后台线程上，响应晚点到：handleApi 返回 true 时调用方不要再发

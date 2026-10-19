@@ -23,6 +23,7 @@
 | T012 | **`display-dpi-changed` 事件**：Windows 没有专门的显示器 DPI 变更消息，只能在 `WM_DISPLAYCHANGE` / `WM_SETTINGCHANGE` 那批消息里顺带 diff。**粒度未定**（按屏还是按进程、载荷给不给旧值），定下来前不实现 | 待设计 | 负责人决定 DPI 事件的语义时 | `../doc/display.md` / `01-api.md` | 待办 |
 | T013 | **托盘自定义图标**：`Tray.create()` 目前一律用 exe 自己的图标（`src/Res.rc` 的 `100 ICON`，数字 id 是约定好的）。需要让开发者指定图标时再做，顺带定清楚支持的格式与尺寸 | 待实现 | 有人提出要换托盘图标时 | `../doc/tray.md` / `01-api.md` | 待办 |
 | T014 | **`Http.createServer()`**：起一个 HTTP / HTTPS 服务器（监听端口、处理请求、回响应）。**不可能纯 JS 做**（浏览器里没法监听端口），归在 http 域。要做时先定清楚：单端口还是多实例、请求/响应的载荷怎么过消息通道（大 body 要不要走共享内存）、要不要支持路由与 WebSocket | 待实现 | 应用需要在本机起服务时（比如给前端做本地 API、做局域网发现） | `../doc/http.md` / `01-api.md` | 待办 |
+| T015 | **子进程域补全**：`Process.spawn` 已能启动并收 stdout / stderr / exit，还差 `proc.kill()`（现在只能靠页面销毁结束子进程）、**stdin**（`proc.write()`，目前子进程 stdin 是空设备 NUL）、`env` 选项（现在一律继承当前进程环境） | 待实现 | 有人需要跟子进程双向通信、或要控制子进程环境时 | `../doc/process.md` / `01-api.md` | 待办 |
 
 ## T001 详情：JSON 序列化开销实测
 

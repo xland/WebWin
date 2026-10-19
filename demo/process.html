@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin 子进程 API 演示</title>
+	<!-- 公共样式：所有演示页共用一套盒子 / 按钮 / 输入框，见 style.css -->
+	<link rel="stylesheet" href="style.css">
+	<style>
+		/* 本页的输入：程序一行、参数一行 */
+		.cmd {
+			width: 100%;
+			margin-bottom: 8px;
+		}
+	</style>
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section>
+		<h2>启动子进程（Process.spawn）</h2>
+		<input class="cmd" id="file" value="ping">
+		<input class="cmd" id="args" value="127.0.0.1 -n 3">
+		<button onclick="spawn()">Process.spawn()</button>
+		<div class="note">
+			返回的是<b>进程对象</b>（Process 实例），输出和退出码都作为它的事件推回。
+			<code>spawn</code> 是 <b>async</b>：进程是 C++ 侧的 Win32 对象，得等它建好。<br>
+			<b>监听要紧跟在 await 后面同步挂上</b> —— spawn 一 resolve 子进程就已经在跑了，
+			中间再去 await 别的，开头几行输出就丢了。
+		</div>
+	</section>
+
+	<section>
+		<h2>stderr 与退出码</h2>
+		<button onclick="spawnStderr()">写到 stderr</button>
+		<button onclick="spawnExitCode()">退出码 7</button>
+		<div class="note">
+			stdout / stderr 是两条独立的管道，各走各的事件；<code>exit</code>
+			带子进程的退出码。输出是按<b>一段一段</b>推的，不是等进程结束才一次给。
+		</div>
+	</section>
+
+	<section>
+		<h2>控制台窗口与 detached</h2>
+		<button onclick="spawn({ hide: false })">spawn({ hide: false })</button>
+		<button onclick="spawnDetached()">spawn({ detached: true })</button>
+		<div class="note">
+			默认<b>不弹控制台窗口</b>，输出照样能收到；传 <code>hide: false</code> 才显示。<br>
+			默认的子进程<b>会跟着页面一起结束</b> —— 关掉窗口（或这个 iframe 被移除）时杀掉，
+			不留孤儿进程。传 <code>detached: true</code> 就不杀：想让它在页面没了之后
+			继续跑用它（起了记事本之后可以关掉窗口看看）。
+		</div>
+	</section>
+
+	<script>
+		// 最近一次启动的子进程：留着是为了演示"事件属于它自己"，
+		// 同时起好几个也互不干扰
+		let proc = null;
+
+		/**
+		 * 启动子进程并挂上三个监听。
+		 *
+		 * on() 必须紧跟 await 同步挂上：子进程的管道在 C++ 那边已经开读了，
+		 * 晚一步就漏掉开头的输出
+		 */
+		async function spawn(options) {
+			const file = document.getElementById('file').value.trim();
+			const args = document.getElementById('args').value.trim().split(/\s+/).filter(Boolean);
+			const optText = options ? `, ${JSON.stringify(options)}` : '';
+			log(`── Process.spawn(${JSON.stringify(file)}, ${JSON.stringify(args)}${optText})`);
+			try {
+				proc = await Process.spawn(file, args, options);
+			} catch (e) {
+				log(`  reject：${e && e.message ? e.message : e}`, 'err');
+				return;
+			}
+			log(`  resolve：子进程 id=${proc.id}，系统 pid=${proc.pid}`, 'ok');
+			listen(proc);
+		}
+
+		/** 把 echo 的输出重定向到 stderr，用来看 stderr 那条线 */
+		async function spawnStderr() {
+			log(`── Process.spawn('cmd.exe', ['/c', 'echo 这条写到 stderr 1>&2'])`);
+			try {
+				proc = await Process.spawn('cmd.exe', ['/c', 'echo 这条写到 stderr 1>&2']);
+			} catch (e) {
+				log(`  reject：${e && e.message ? e.message : e}`, 'err');
+				return;
+			}
+			log(`  resolve：系统 pid=${proc.pid}`, 'ok');
+			listen(proc);
+		}
+
+		/** 退出码：cmd 的 exit 会把退出码带出来 */
+		async function spawnExitCode() {
+			log(`── Process.spawn('cmd.exe', ['/c', 'exit 7'])`);
+			try {
+				proc = await Process.spawn('cmd.exe', ['/c', 'exit 7']);
+			} catch (e) {
+				log(`  reject：${e && e.message ? e.message : e}`, 'err');
+				return;
+			}
+			log(`  resolve：系统 pid=${proc.pid}`, 'ok');
+			listen(proc);
+		}
+
+		/** detached：起了个记事本，切到别的演示页它也不会被杀 */
+		async function spawnDetached() {
+			log(`── Process.spawn('notepad.exe', [], { detached: true })`);
+			try {
+				proc = await Process.spawn('notepad.exe', [], { detached: true });
+			} catch (e) {
+				log(`  reject：${e && e.message ? e.message : e}`, 'err');
+			return;
+			}
+			log(`  resolve：系统 pid=${proc.pid}`, 'ok');
+			listen(proc);
+		}
+
+		/** 三个事件：输出分 stdout / stderr，退出码在 exit 里 */
+		function listen(p) {
+			p.on('stdout', (out) => log(`  [stdout] ${out.text}`, 'evt'));
+			p.on('stderr', (err) => log(`  [stderr] ${err.text}`, 'err'));
+			p.on('exit', (exit) => log(`  [exit] 退出码 ${exit.code}`, 'evt'));
+		}
+
+		// ---------- 启动 ----------
+		window.addEventListener('load', () => {
+			log(`SDK 就绪：Process 类型${typeof Process === 'undefined' ? '缺失' : '已注入'}`);
+		});
+	</script>
+</body>
+
+</html>

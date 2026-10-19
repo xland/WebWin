@@ -18,8 +18,9 @@ const root = path.resolve(here, '..');
 const srcDir = path.join(root, 'dist', 'types');
 const outFile = path.join(root, 'dist', 'webwin.d.ts');
 
-// 输出顺序：Ipc 是基类放最前，各域随后，global 块放最后
-const order = ['Ipc', 'App', 'Menu', 'Os', 'Path', 'Win', 'Display', 'Dialog', 'Fs', 'Http', 'Db', 'Tray', 'WebWin'];
+// 输出顺序：Ipc 是基类放最前，各域随后，global 块放最后。
+// 新增能力域后要把它的 .d.ts 名字加到这里 —— 漏了构建会失败（见文件末尾的兜底检查）
+const order = ['Ipc', 'App', 'Menu', 'Os', 'Path', 'Win', 'Display', 'Dialog', 'Fs', 'Http', 'Process', 'Db', 'Tray', 'WebWin'];
 
 /** 去掉 declare global { ... } 这一层，让内容回到顶层（合并后大家都在同一作用域） */
 function unwrapGlobal(text)
@@ -87,7 +88,7 @@ const banner = [
 	' *',
 	' * 框架注入到页面里的全局对象：',
 	' *   win（当前窗口）· Win（窗口类型）· os · app · display · dialog',
-	' * 需要自己建实例的类型：Menu · Db',
+	' * 需要自己建实例的类型：Menu · Db · Tray · Process（都是静态工厂方法建实例）',
 	' */',
 	'',
 ].join('\n');

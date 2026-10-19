@@ -10,7 +10,7 @@
  *
  * 框架注入到页面里的全局对象：
  *   win（当前窗口）· Win（窗口类型）· os · app · display · dialog
- * 需要自己建实例的类型：Menu · Db
+ * 需要自己建实例的类型：Menu · Db · Tray · Process（都是静态工厂方法建实例）
  */
 // ---- Ipc ----
 /**
@@ -830,6 +830,86 @@ declare class Http extends Ipc {
 }
 {};
 
+// ---- Process ----
+/** `Process.spawn()` 的选项；都可以不传 */
+interface SpawnOptions {
+    /** 子进程的工作目录；不给就用应用基准目录（package.json 所在目录） */
+    cwd?: string;
+    /** 是否**隐藏**控制台窗口，默认 true。想让用户看见就传 false */
+    hide?: boolean;
+    /** 脱离页面生命周期：页面销毁时不杀它，默认 false */
+    detached?: boolean;
+}
+/** `stdout` / `stderr` 事件的载荷 */
+interface ProcessOutput {
+    /**
+     * 这一段输出。按 UTF-8 解码；解不动时退回系统 ANSI 代码页
+     *（中文 Windows 上是 GBK，cmd.exe 这类老程序用的就是它）
+     */
+    text: string;
+}
+/** `exit` 事件的载荷 */
+interface ProcessExit {
+    /** 子进程的退出码 */
+    code: number;
+}
+/**
+ * 子进程（process 域）。
+ *
+ * `Process` 是**类型**（`window.Process`），不是实例 —— 跟 `Menu` / `Db` / `Tray` 一个路子。
+ * 用静态方法 `Process.spawn()` 启动子进程，返回的是一个 **Process 实例**，
+ * 也就是一个"进程对象"；输出与退出都作为**该对象**的事件推回。
+ *
+ * ```ts
+ * const proc = await Process.spawn('cmd.exe', ['/c', 'echo hello']);
+ * proc.on('stdout', (p) => log(p.text));
+ * proc.on('exit',   (p) => log(`退出码 ${p.code}`));
+ * ```
+ *
+ * 三点要留意：
+ * - `spawn` 是 **async**：进程是 C++ 侧的 Win32 对象，得等它建好
+ * - **监听要紧跟 await 同步挂上**。子进程一启动就开始输出，
+ *   晚一步（比如先去 await 别的）开头几行就漏了
+ * - 事件只推给**发起 spawn 的那个页面**；同时开着好几个子进程时各收各的
+ *
+ * 生命周期：页面被销毁时（切走 / 关窗口），它启动的、没标 `detached` 的
+ * 子进程会被杀掉 —— 谁启动谁负责，不留孤儿进程
+ */
+declare class Process extends Ipc {
+    private static readonly domain;
+    /** 子进程 id → 实例：下行的输出 / 退出消息按 id 找回实例 */
+    private static readonly registry;
+    protected type: string;
+    /**
+     * C++ 分配的子进程 id，只用于路由。
+     * @internal 开发者用不到 —— 要的是 `pid`（系统进程 id）
+     */
+    readonly id: number;
+    /** 系统进程 id */
+    readonly pid: number;
+    private readonly handlers;
+    private constructor();
+    /**
+     * 启动子进程，返回进程对象。**是 async**：得等 C++ 把进程建起来。
+     *
+     * 启动失败（找不到文件、权限不够 …）会 reject。
+     * 子进程**运行**失败不在这里体现 —— 看 `exit` 事件的退出码
+     */
+    static spawn(file: string, args?: string[], options?: SpawnOptions): Promise<Process>;
+    /**
+     * 订阅事件；返回退订函数。
+     *
+     * 这里**不**像 `os.on()` / `win.on()` 那样还要通知 C++ 一声 ——
+     * 子进程一建好就开始推了，订阅与否是页面自己的事（没人听就丢掉）。
+     * 所以这是实例自己的订阅表，不是 Ipc 那张"窗口 + 事件名"的全局表
+     */
+    on<T = unknown>(name: string, handler: Handler<T>): () => void;
+    /** 取消订阅 */
+    off<T = unknown>(name: string, handler: Handler<T>): void;
+    /** @internal 通道收到子进程事件时，按 proc 字段转给对应实例的监听者 */
+    static dispatch(msg: DownstreamMessage): void;
+}
+
 // ---- Db ----
 /**
  * 绑定参数。两种都收：
@@ -952,7 +1032,9 @@ declare class Tray extends Ipc {
  *   fs 只管文件，全部异步（跑在后台线程上），相对路径以应用基准目录为底
  *   Menu / Db / Tray —— 需要自己建实例的类型（Menu.create() / Db.open() / Tray.create()）
  *   Http —— 只有静态方法的类型（Http.fetch() 发请求，走 C++ 所以没有 CORS 限制）
+ *   Process —— 静态方法 Process.spawn() 启动子进程，返回进程对象
  */
+
 
 
 
@@ -990,4 +1072,6 @@ declare class Tray extends Ipc {
         Tray: typeof Tray;
         /** HTTP 请求类型：Http.fetch() 发请求（走 C++，不受 CORS 限制） */
         Http: typeof Http;
+        /** 子进程类型：Process.spawn() 启动子进程，返回进程对象 */
+        Process: typeof Process;
     }

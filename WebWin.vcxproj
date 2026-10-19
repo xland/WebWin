@@ -108,6 +108,7 @@
     <ClCompile Include="src\Http.cpp" />
     <ClCompile Include="src\Async.cpp" />
     <ClCompile Include="src\Fs.cpp" />
+    <ClCompile Include="src\Process.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -129,6 +130,7 @@
     <ClInclude Include="src\Http.h" />
     <ClInclude Include="src\Async.h" />
     <ClInclude Include="src\Fs.h" />
+    <ClInclude Include="src\Process.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\Res.rc" />

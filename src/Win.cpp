@@ -15,6 +15,7 @@
 #include "Env.h"
 #include "Json.h"
 #include "Menu.h"
+#include "Process.h"
 
 namespace {
     std::vector<std::unique_ptr<Win>> winDic;
@@ -476,6 +477,7 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		Menu::removeByPage(winObj->page.get()); // 本页建的菜单一起销毁：点击已无处可推
 		Dialog::removeByPage(winObj->page.get()); // 本页排着的对话框请求：窗口没了就弹不了
 		Db::removeByPage(winObj->page.get());     // 本页开的数据库连接一起关：不然文件锁一直占着
+		Process::removeByPage(winObj->page.get()); // 本页启动的子进程一起结束：不留孤儿进程（detached 的除外）
 		// 本页还在等的异步任务（http 的请求、fs 的读写）一起丢掉：
 		// 页面没了，回包时会用到悬挂的 Page*。Async 一张表管住所有域，这里调一次就够
 		Async::removeByPage(winObj->page.get());

@@ -10,6 +10,7 @@
  *   fs 只管文件，全部异步（跑在后台线程上），相对路径以应用基准目录为底
  *   Menu / Db / Tray —— 需要自己建实例的类型（Menu.create() / Db.open() / Tray.create()）
  *   Http —— 只有静态方法的类型（Http.fetch() 发请求，走 C++ 所以没有 CORS 限制）
+ *   Process —— 静态方法 Process.spawn() 启动子进程，返回进程对象
  */
 
 import { App } from './App';
@@ -22,6 +23,7 @@ import { installChannel } from './Ipc';
 import { Menu } from './Menu';
 import { Os } from './Os';
 import { Path } from './Path';
+import { Process } from './Process';
 import { Tray } from './Tray';
 import { Win } from './Win';
 
@@ -51,6 +53,8 @@ declare global {
 		Tray: typeof Tray;
 		/** HTTP 请求类型：Http.fetch() 发请求（走 C++，不受 CORS 限制） */
 		Http: typeof Http;
+		/** 子进程类型：Process.spawn() 启动子进程，返回进程对象 */
+		Process: typeof Process;
 	}
 }
 
@@ -69,4 +73,7 @@ if (config) {
 	window.Db = Db; // 数据库没有默认实例：必须 Db.open() 自己建
 	window.Tray = Tray; // 托盘同理：图标要自己建，一个进程允许建多个
 	window.Http = Http; // HTTP 只有静态方法，不用建实例
+	window.Process = Process; // 子进程没有默认实例：必须自己 spawn
+	// 子进程的输出 / 退出事件由 Process 域自己在通道上登记钩子认领（见 Process.ts 末尾），
+	// 事件按子进程 id 送回**发起 spawn 的那个文档**，所以这里也不必接
 }
