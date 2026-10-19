@@ -1,0 +1,97 @@
+/* 演示页的公共样式
+ *
+ * 只放"每个演示页都长得一样"的部分：页面盒子、标题、按钮、输入框。
+ * 页面独有的样式留在各自的 <style> 里 —— 比如只有那一页才有的布局或控件。
+ * 外壳（index.html）不算演示页，它有自己的一套三栏样式，不引这个文件。
+ */
+
+body {
+	font-family: system-ui, "Microsoft YaHei", sans-serif;
+	margin: 0;
+	padding: 16px;
+	color: #222;
+}
+
+section {
+	background: #fff;
+	border: 1px solid #e3e3e6;
+	border-radius: 8px;
+	padding: 16px;
+	margin-bottom: 16px;
+}
+
+/* 第一块不需要上边距：body 的 padding 已经把它推开了 */
+.first {
+	margin-top: 0;
+}
+
+h2 {
+	font-size: 14px;
+	margin: 0 0 12px;
+	color: #444;
+}
+
+.note {
+	font-size: 12px;
+	color: #888;
+	margin: 8px 0 0;
+}
+
+button {
+	font: inherit;
+	font-size: 13px;
+	padding: 6px 12px;
+	margin: 0 8px 8px 0;
+	border: 1px solid #c8c8cc;
+	border-radius: 4px;
+	background: #fff;
+	cursor: pointer;
+}
+
+button:hover {
+	background: #f0f0f2;
+}
+
+button:disabled {
+	color: #bbb;
+	border-color: #e3e3e6;
+	cursor: not-allowed;
+}
+
+/* 危险操作（关窗口 / 删文件 / 退出）标红，跟普通按钮分开 */
+.danger {
+	color: #c0392b;
+	border-color: #e0b4b0;
+}
+
+code {
+	background: #f4f4f5;
+	border-radius: 3px;
+	padding: 1px 4px;
+}
+
+input,
+select,
+textarea {
+	font: inherit;
+	font-size: 13px;
+	padding: 5px 8px;
+	border: 1px solid #c8c8cc;
+	border-radius: 4px;
+	box-sizing: border-box;
+}
+
+label {
+	font-size: 12px;
+	color: #666;
+}
+
+/* 颜色演示用的小色块（os / display 两页都在用） */
+.dot {
+	display: inline-block;
+	width: 14px;
+	height: 14px;
+	margin-right: 6px;
+	border: 1px solid #777;
+	vertical-align: -2px;
+}

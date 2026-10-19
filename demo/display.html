@@ -4,74 +4,17 @@
 <head>
 	<meta charset="utf-8">
 	<title>WebWin 显示设备 API 演示</title>
+	<!-- 公共样式：所有演示页共用一套盒子 / 按钮 / 输入框，见 style.css -->
+	<link rel="stylesheet" href="style.css">
 	<style>
-		body {
-			font-family: system-ui, "Microsoft YaHei", sans-serif;
-			margin: 0;
-			padding: 16px;
-			color: #222;
-		}
-
-		section {
-			background: #fff;
-			border: 1px solid #e3e3e6;
-			border-radius: 8px;
-			padding: 16px;
-			margin-bottom: 16px;
-		}
-
-		h2 {
-			font-size: 14px;
-			margin: 0 0 12px;
-			color: #444;
-		}
-
-		.note {
-			font-size: 12px;
-			color: #888;
-			margin: 8px 0 0;
-		}
-
-		button {
-			font: inherit;
-			font-size: 13px;
-			padding: 6px 12px;
-			margin: 0 8px 8px 0;
-			border: 1px solid #c8c8cc;
-			border-radius: 4px;
-			background: #fff;
-			cursor: pointer;
-		}
-
-		button:hover {
-			background: #f0f0f2;
-		}
-
+		/* 坐标输入框：一排四个，窄一点才放得下 */
 		input[type="number"] {
-			font: inherit;
-			font-size: 13px;
 			width: 76px;
 			padding: 5px 6px;
 			margin: 0 6px 8px 0;
-			border: 1px solid #c8c8cc;
-			border-radius: 4px;
 		}
 
-		label {
-			font-size: 12px;
-			color: #666;
-		}
-
-		/* 取色演示：色块 + 色值，避免深色底配深色字看不清 */
-		.dot {
-			display: inline-block;
-			width: 14px;
-			height: 14px;
-			margin-right: 6px;
-			border: 1px solid #777;
-			vertical-align: -2px;
-		}
-
+		/* 截图：没截过就藏着，截完了才显示 */
 		#shot {
 			display: none;
 			max-width: 100%;

@@ -4,78 +4,19 @@
 <head>
 	<meta charset="utf-8">
 	<title>WebWin 文件 API 演示</title>
+	<!-- 公共样式：所有演示页共用一套盒子 / 按钮 / 输入框，见 style.css -->
+	<link rel="stylesheet" href="style.css">
 	<style>
-		body {
-			font-family: system-ui, "Microsoft YaHei", sans-serif;
-			margin: 0;
-			padding: 16px;
-			color: #222;
-		}
-
-		section {
-			background: #fff;
-			border: 1px solid #e3e3e6;
-			border-radius: 8px;
-			padding: 16px;
-			margin-bottom: 16px;
-		}
-
-		h2 {
-			font-size: 14px;
-			margin: 0 0 12px;
-			color: #444;
-		}
-
-		.first {
-			margin-top: 0;
-		}
-
-		.note {
-			font-size: 12px;
-			color: #888;
-			margin: 8px 0 0;
-		}
-
-		button {
-			font: inherit;
-			font-size: 13px;
-			padding: 6px 12px;
-			margin: 0 8px 8px 0;
-			border: 1px solid #c8c8cc;
-			border-radius: 4px;
-			background: #fff;
-			cursor: pointer;
-		}
-
-		button:hover {
-			background: #f0f0f2;
-		}
-
-		code {
-			background: #f4f4f5;
-			border-radius: 3px;
-			padding: 1px 4px;
-		}
-
-		textarea,
-		input {
-			font: inherit;
-			font-size: 13px;
-			padding: 5px 8px;
-			border: 1px solid #c8c8cc;
-			border-radius: 4px;
-			box-sizing: border-box;
+		/* 本页的两个输入控件：路径一行、内容多行 */
+		.path {
+			width: 100%;
+			margin-bottom: 8px;
 		}
 
 		textarea {
 			width: 100%;
 			height: 70px;
 			resize: vertical;
-			margin-bottom: 8px;
-		}
-
-		.path {
-			width: 100%;
 			margin-bottom: 8px;
 		}
 	</style>
@@ -86,7 +27,7 @@
 <body>
 	<section class="first">
 		<h2>路径基准</h2>
-		<button onclick="showBase()">看相对路径落到哪</button>
+		<button onclick="resolveBase()">看相对路径落到哪</button>
 		<div class="note">
 			相对路径一律以 <b>package.json 所在目录</b>为底（跟 <code>path.resolve()</code> 一致）。
 			不能用"进程当前目录"当基准 —— GUI 进程没有有意义的 cwd，
@@ -99,9 +40,9 @@
 		<input id="path" class="path" value="demo-fs.txt">
 		<textarea id="data">第一行
 第二行</textarea>
-		<button onclick="demoWrite()">writeFile</button>
-		<button onclick="demoRead()">readFile</button>
-		<button onclick="demoAppend()">appendFile</button>
+		<button onclick="writeFile()">writeFile</button>
+		<button onclick="readFile()">readFile</button>
+		<button onclick="appendFile()">appendFile</button>
 		<div class="note">
 			默认按 UTF-8 读写。<b>不会自动建父目录</b> —— 目录不存在就直接报错。
 		</div>
@@ -109,8 +50,8 @@
 
 	<section>
 		<h2>信息 / 权限</h2>
-		<button onclick="demoStat()">stat</button>
-		<button onclick="demoAccess()">access（存在 / 不存在各一次）</button>
+		<button onclick="stat()">stat</button>
+		<button onclick="access()">access（存在 / 不存在各一次）</button>
 		<div class="note">
 			<code>access</code> 默认只查存在。权限位是<b>近似</b>的：<code>W_OK</code> 只看只读属性，不查 ACL。
 		</div>
@@ -118,24 +59,26 @@
 
 	<section>
 		<h2>复制 / 改名 / 删除</h2>
-		<button onclick="demoCopyRename()">copyFile → rename → 读回</button>
-		<button onclick="demoUnlink()">unlink（删掉，再删一次看报错）</button>
+		<button onclick="copyThenRename()">copyFile → rename → 读回</button>
+		<button onclick="unlink()">unlink（删掉，再删一次看报错）</button>
 	</section>
 
 	<section>
 		<h2>二进制：base64 与 ArrayBuffer</h2>
-		<button onclick="demoBase64()">base64 往返（无损）</button>
-		<button onclick="demoBinary()">binary → ArrayBuffer，用完 release()</button>
+		<button onclick="readBase64()">base64 往返（无损）</button>
+		<button onclick="readBinary()">binary → ArrayBuffer，用完 release()</button>
 		<div class="note">
 			<code>binary</code> 走共享内存、不进 JSON，没有 base64 那 1/3 膨胀；
-			但 <b>buffer 只读，且用完必须 <code>release()</code></b>，不调会一直占着。
+			但 <b>buffer 只读，且用完必须 <code>release()</code></b>，不调会一直占着。<br>
+			下面这个例子就是标准写法：<b>先写一个含 <code>\x00</code> 的真二进制文件，
+			再用 <code>binary</code> 读回来，最后在 <code>finally</code> 里 release()</b>。
 		</div>
 	</section>
 
 	<script>
-		const P = () => document.getElementById('path').value.trim() || 'demo-fs.txt';
+		const filePath = () => document.getElementById('path').value.trim() || 'demo-fs.txt';
 
-		function showBase() {
+		function resolveBase() {
 			log(`── 相对路径的落点`, 'ok');
 			for (const p of ['demo-fs.txt', 'data/a.json', '.']) {
 				log(`  ${JSON.stringify(p)} → ${path.resolve(p)}`);
@@ -145,8 +88,8 @@
 			log(`  注意 \\a 这种没带盘符的仍依赖"当前盘"，别这么写`, 'err');
 		}
 
-		async function demoWrite() {
-			const p = P();
+		async function writeFile() {
+			const p = filePath();
 			const data = document.getElementById('data').value;
 			log(`── writeFile(${JSON.stringify(p)})`, 'ok');
 			try {
@@ -157,8 +100,8 @@
 			}
 		}
 
-		async function demoRead() {
-			const p = P();
+		async function readFile() {
+			const p = filePath();
 			log(`── readFile(${JSON.stringify(p)})`, 'ok');
 			try {
 				const text = await fs.readFile(p);
@@ -168,8 +111,8 @@
 			}
 		}
 
-		async function demoAppend() {
-			const p = P();
+		async function appendFile() {
+			const p = filePath();
 			log(`── appendFile(${JSON.stringify(p)}, "\\n追加一行")`, 'ok');
 			try {
 				await fs.appendFile(p, '\n追加一行');
@@ -179,8 +122,8 @@
 			}
 		}
 
-		async function demoStat() {
-			const p = P();
+		async function stat() {
+			const p = filePath();
 			log(`── stat(${JSON.stringify(p)})`, 'ok');
 			try {
 				const s = await fs.stat(p);
@@ -193,8 +136,8 @@
 			}
 		}
 
-		async function demoAccess() {
-			const p = P();
+		async function access() {
+			const p = filePath();
 			log(`── access`, 'ok');
 			try {
 				await fs.access(p);
@@ -216,8 +159,8 @@
 			}
 		}
 
-		async function demoCopyRename() {
-			const p = P();
+		async function copyThenRename() {
+			const p = filePath();
 			const copy = p.replace(/(\.[^.]+)?$/, '-copy$1');
 			const moved = p.replace(/(\.[^.]+)?$/, '-moved$1');
 			log(`── copyFile → rename → 读回`, 'ok');
@@ -232,8 +175,8 @@
 			}
 		}
 
-		async function demoUnlink() {
-			const p = P();
+		async function unlink() {
+			const p = filePath();
 			const moved = p.replace(/(\.[^.]+)?$/, '-moved$1');
 			log(`── unlink(${JSON.stringify(moved)})`, 'ok');
 			try {
@@ -251,8 +194,8 @@
 			}
 		}
 
-		async function demoBase64() {
-			const p = P();
+		async function readBase64() {
+			const p = filePath();
 			log(`── base64 往返（二进制无损）`, 'ok');
 			try {
 				// 拿一段含非 ASCII 的字节，证明往返无损
@@ -266,21 +209,48 @@
 			}
 		}
 
-		async function demoBinary() {
-			const p = P();
-			log(`── binary → ArrayBuffer`, 'ok');
+		/**
+		 * 读二进制文件的标准写法：binary → ArrayBuffer → 用完 release()。
+		 *
+		 * 两个要点：
+		 * 1. 字节走共享内存进来，不进 JSON，所以没有 base64 那 1/3 膨胀
+		 * 2. buffer 是**借**来的：必须 release() 还回去，不还就一直占着共享内存
+		 */
+		async function readBinary() {
+			const p = filePath();
+			log(`── readFile(${JSON.stringify(p)}, 'binary')`, 'ok');
 			try {
-				await fs.writeFile(p, '0123456789');
+				// 先造一个真二进制文件：0x00..0xFF 每种字节都来一遍。
+				// 这种内容用 utf8 读一定会坏 —— 这正是 binary 存在的理由
+				const bytes = new Uint8Array(256);
+				for (let i = 0; i < bytes.length; i++) bytes[i] = i;
+				await fs.writeFile(p, toBase64(bytes), { encoding: 'base64' });
+				log(`  已写入 ${bytes.length} 字节（0x00..0xFF，含 \\x00）`, 'ok');
+
 				const bin = await fs.readFile(p, 'binary');
-				log(`  size=${bin.size}  buffer=${bin.buffer.byteLength} 字节`, 'ok');
-				// Blob 会拷一份，所以先建 Blob 再 release：释放后 buffer 就不能再读了
-				const text = new TextDecoder().decode(new Uint8Array(bin.buffer));
-				log(`  内容：${JSON.stringify(text)}`, 'ok');
-				bin.release();
-				log(`  已 release()（不调会一直占着共享内存）`, 'evt');
+				try {
+					log(`  size=${bin.size}  buffer=${bin.buffer.byteLength} 字节`, 'ok');
+					const head = [...new Uint8Array(bin.buffer.slice(0, 8))]
+						.map(b => b.toString(16).padStart(2, '0')).join(' ');
+					log(`  头 8 字节：${head}（字节原样到手，没被当文本解）`, 'ok');
+					const last = new Uint8Array(bin.buffer.slice(-1))[0];
+					log(`  末字节：0x${last.toString(16)}（0xFF 也完好 —— 用 utf8 读它会变成替换字符）`, 'ok');
+				} finally {
+					// release() 放 finally：中间任何一步抛异常也一定还回去。
+					// 写在 try 末尾的话，异常时就被跳过了 —— 那正是最容易漏的场景
+					bin.release();
+					log(`  release() 之后 buffer.byteLength=${bin.buffer.byteLength} —— 已失效，别再读`, 'evt');
+				}
 			} catch (e) {
 				log(`  reject：${e.message}`, 'err');
 			}
+		}
+
+		/** Uint8Array → base64 字符串：writeFile 只收字符串，写二进制就这一条路 */
+		function toBase64(bytes) {
+			let raw = '';
+			for (const b of bytes) raw += String.fromCharCode(b);
+			return btoa(raw);
 		}
 
 		// ---------- 切换页面时清理 ----------

@@ -4,55 +4,8 @@
 <head>
 	<meta charset="utf-8">
 	<title>WebWin 本地数据库 API 演示</title>
-	<style>
-		body {
-			font-family: system-ui, "Microsoft YaHei", sans-serif;
-			margin: 0;
-			padding: 16px;
-			color: #222;
-		}
-
-		section {
-			background: #fff;
-			border: 1px solid #e3e3e6;
-			border-radius: 8px;
-			padding: 16px;
-			margin-bottom: 16px;
-		}
-
-		h2 {
-			font-size: 14px;
-			margin: 0 0 12px;
-			color: #444;
-		}
-
-		.note {
-			font-size: 12px;
-			color: #888;
-			margin: 8px 0 0;
-		}
-
-		button {
-			font: inherit;
-			font-size: 13px;
-			padding: 6px 12px;
-			margin: 0 8px 8px 0;
-			border: 1px solid #c8c8cc;
-			border-radius: 4px;
-			background: #fff;
-			cursor: pointer;
-		}
-
-		button:hover {
-			background: #f0f0f2;
-		}
-
-		code {
-			background: #f4f4f5;
-			border-radius: 3px;
-			padding: 1px 4px;
-		}
-	</style>
+	<!-- 公共样式：所有演示页共用一套盒子 / 按钮 / 输入框，见 style.css -->
+	<link rel="stylesheet" href="style.css">
 	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
 	<script src="log.js"></script>
 </head>
@@ -115,7 +68,7 @@
 
 	<section>
 		<h2>类型映射</h2>
-		<button onclick="typesDemo()">查一行全类型</button>
+		<button onclick="typeMapping()">查一行全类型</button>
 		<div class="note">
 			INTEGER / REAL → number，TEXT → string，BLOB → <b>base64 字符串</b>，NULL → <code>null</code>。
 			SQLite 的 INTEGER 是 64 位的，转成 JS number 后超过 2^53 会丢精度。
@@ -175,7 +128,7 @@
 				if (db) await db.close().catch(() => { });
 				db = await Db.open('demo.db');
 				log("Db.open('demo.db') → 已连接", 'ok');
-			} catch (e) { fail('Db.open(demo.db)', e); }
+			} catch (e) { fail("Db.open('demo.db')", e); }
 		}
 
 		async function closeDb() {
@@ -257,7 +210,7 @@
 			} catch (e) { fail('run(DELETE)', e); }
 		}
 
-		async function typesDemo() {
+		async function typeMapping() {
 			try {
 				const d = await ensureDb();
 				const row = await d.get("SELECT 42 AS i, 3.14 AS r, '文本' AS t, X'010203' AS b, NULL AS n");

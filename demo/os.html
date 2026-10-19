@@ -4,64 +4,15 @@
 <head>
 	<meta charset="utf-8">
 	<title>WebWin 系统 API 演示</title>
+	<!-- 公共样式：所有演示页共用一套盒子 / 按钮 / 输入框，见 style.css -->
+	<link rel="stylesheet" href="style.css">
 	<style>
-		body {
-			font-family: system-ui, "Microsoft YaHei", sans-serif;
-			margin: 0;
-			padding: 16px;
-			color: #222;
-		}
-
-		section {
-			background: #fff;
-			border: 1px solid #e3e3e6;
-			border-radius: 8px;
-			padding: 16px;
-			margin-bottom: 16px;
-		}
-
-		h2 {
-			font-size: 14px;
-			margin: 0 0 12px;
-			color: #444;
-		}
-
-		.note {
-			font-size: 12px;
-			color: #888;
-			margin: 8px 0 0;
-		}
-
-		button {
-			font: inherit;
-			font-size: 13px;
-			padding: 6px 12px;
-			margin: 0 8px 8px 0;
-			border: 1px solid #c8c8cc;
-			border-radius: 4px;
-			background: #fff;
-			cursor: pointer;
-		}
-
-		button:hover {
-			background: #f0f0f2;
-		}
-
-		/* 配色演示：小色块 + 文字，避免深色底配深色字看不清 */
+		/* 色块是追加到外壳右侧那块**深色**日志区里的，所以字色用浅的 */
 		.swatch {
 			display: inline-block;
 			margin: 0 12px 6px 0;
 			font-size: 11px;
 			color: #d4d4d4;
-		}
-
-		.dot {
-			display: inline-block;
-			width: 12px;
-			height: 12px;
-			margin-right: 5px;
-			border: 1px solid #777;
-			vertical-align: -1px;
 		}
 	</style>
 	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->

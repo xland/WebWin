@@ -4,55 +4,8 @@
 <head>
 	<meta charset="utf-8">
 	<title>WebWin 系统对话框 API 演示</title>
-	<style>
-		body {
-			font-family: system-ui, "Microsoft YaHei", sans-serif;
-			margin: 0;
-			padding: 16px;
-			color: #222;
-		}
-
-		section {
-			background: #fff;
-			border: 1px solid #e3e3e6;
-			border-radius: 8px;
-			padding: 16px;
-			margin-bottom: 16px;
-		}
-
-		h2 {
-			font-size: 14px;
-			margin: 0 0 12px;
-			color: #444;
-		}
-
-		.note {
-			font-size: 12px;
-			color: #888;
-			margin: 8px 0 0;
-		}
-
-		button {
-			font: inherit;
-			font-size: 13px;
-			padding: 6px 12px;
-			margin: 0 8px 8px 0;
-			border: 1px solid #c8c8cc;
-			border-radius: 4px;
-			background: #fff;
-			cursor: pointer;
-		}
-
-		button:hover {
-			background: #f0f0f2;
-		}
-
-		code {
-			background: #f4f4f5;
-			border-radius: 3px;
-			padding: 1px 4px;
-		}
-	</style>
+	<!-- 公共样式：所有演示页共用一套盒子 / 按钮 / 输入框，见 style.css -->
+	<link rel="stylesheet" href="style.css">
 	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
 	<script src="log.js"></script>
 </head>
@@ -61,7 +14,7 @@
 	<section>
 		<h2>选择文件（dialog.openPath）</h2>
 		<button onclick="openFile()">单选文件</button>
-		<button onclick="openMulti()">多选文件（带过滤器）</button>
+		<button onclick="openFiles()">多选文件（带过滤器）</button>
 		<div class="note">
 			返回值是 <code>{ cancel, data }</code>：<code>data</code> 一律是<b>路径数组</b>，
 			单选时也只装一个元素。用户点取消时 <code>cancel</code> 为 true ——
@@ -71,8 +24,8 @@
 
 	<section>
 		<h2>选择文件夹（dialog.openPath，type: 'dir'）</h2>
-		<button onclick="openDir()">选择文件夹</button>
-		<button onclick="openDirs()">多选文件夹</button>
+		<button onclick="openFolder()">选择文件夹</button>
+		<button onclick="openFolders()">多选文件夹</button>
 		<div class="note">
 			<code>type: 'dir'</code> 时只选文件夹，此时 <code>filter</code> 无效（文件夹对话框不接受文件类型）。
 		</div>
@@ -128,7 +81,7 @@
 			} catch (e) { fail('openPath', e); }
 		}
 
-		async function openMulti() {
+		async function openFiles() {
 			try {
 				const r = await dialog.openPath({
 					title: '选几张图片',
@@ -140,7 +93,7 @@
 			} catch (e) { fail('openPath(multi)', e); }
 		}
 
-		async function openDir() {
+		async function openFolder() {
 			try {
 				const r = await dialog.openPath({
 					title: '选择一个文件夹',
@@ -151,7 +104,7 @@
 			} catch (e) { fail('openPath(dir)', e); }
 		}
 
-		async function openDirs() {
+		async function openFolders() {
 			try {
 				const r = await dialog.openPath({
 					title: '选择多个文件夹',
