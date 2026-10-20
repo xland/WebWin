@@ -11,6 +11,7 @@
  *   Menu / Db / Tray —— 需要自己建实例的类型（Menu.create() / Db.open() / Tray.create()）
  *   Http —— 只有静态方法的类型（Http.fetch() 发请求，走 C++ 所以没有 CORS 限制）
  *   Process —— 静态方法 Process.spawn() 启动子进程，返回进程对象
+ *   Net —— 只有静态方法的类型（Net.getAddress() 取本机网卡地址）
  *   regedit —— 注册表单例（get / set / deleteKey / listKeys / listValues）
  */
 
@@ -22,6 +23,7 @@ import { Fs } from './Fs';
 import { Http } from './Http';
 import { installChannel } from './Ipc';
 import { Menu } from './Menu';
+import { Net } from './Net';
 import { Os } from './Os';
 import { Path } from './Path';
 import { Process } from './Process';
@@ -49,6 +51,8 @@ declare global {
 		fs: Fs;
 		/** 菜单类型 */
 		Menu: typeof Menu;
+		/** 网络能力类型：Net.getAddress() 取本机网卡地址 */
+		Net: typeof Net;
 		/** 数据库类型：Db.open() 建连接，实例上再跑 SQL */
 		Db: typeof Db;
 		/** 托盘类型：Tray.create() 建图标，实例上改提示、销毁、听事件 */
@@ -81,4 +85,5 @@ if (config) {
 	// 子进程的输出 / 退出事件由 Process 域自己在通道上登记钩子认领（见 Process.ts 末尾），
 	// 事件按子进程 id 送回**发起 spawn 的那个文档**，所以这里也不必接
 	window.regedit = new Regedit(); // 注册表没有"当前键"的概念：所有操作都带完整路径
+	window.Net = Net; // 网卡是机器级的、不是"某个子对象"的，所以只有静态方法
 }

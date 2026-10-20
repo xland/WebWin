@@ -10,7 +10,7 @@ QuickWin，一个类似 TAURI 的框架，提供的能力比 TAURI 要多，仅�
 | ------------------------------- | ------------------------------------- |
 | [配置说明](doc/config.md)       | `package.json` 里能配什么             |
 | [窗口 API](doc/win.md)          | `win` / `Win`：窗口控制、窗口事件     |
-| [系统 API](doc/os.md)           | `os`：系统信息、锁屏、网卡            |
+| [系统 API](doc/os.md)           | `os`：系统信息、锁屏、凭据            |
 | [显示设备 API](doc/display.md)  | `display`：显示器、截屏、取色         |
 | [系统对话框 API](doc/dialog.md) | `dialog`：选文件、存文件、消息框      |
 | [右键菜单 API](doc/menu.md)     | `Menu`：右键菜单与菜单项              |
@@ -22,3 +22,4 @@ QuickWin，一个类似 TAURI 的框架，提供的能力比 TAURI 要多，仅�
 | [文件 API](doc/fs.md)           | `fs`：文件读写、删除、复制、信息      |
 | [子进程 API](doc/process.md)    | `Process`：启动子进程、收输出与退出码 |
 | [注册表 API](doc/regedit.md)    | `regedit`：注册表读 / 写 / 删键与枚举 |
+| [网络 API](doc/net.md)          | `Net`：网卡信息（名字 / MAC / IP）    |

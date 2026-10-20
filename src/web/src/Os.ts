@@ -25,14 +25,6 @@ export interface OsColors {
 	desktop: string;
 }
 
-/** 一块网卡 */
-export interface NetAdapter {
-	name: string;
-	mac: string;
-	/** IPv4 / IPv6 地址，不含 127.0.0.1 与 ::1 */
-	addresses: string[];
-}
-
 /** osLock 事件的载荷 */
 export interface OsLockPayload {
 	locked: boolean;
@@ -78,7 +70,6 @@ export class Os extends Ipc {
 	getLang(scope: LangScope): Promise<string> { return this.call('getLang', { scope }); }
 
 	getColor(): Promise<OsColors> { return this.call('getColor'); }
-	getIpAddr(): Promise<NetAdapter[]> { return this.call('getIpAddr'); }
 
 	/** 取系统常用目录的绝对路径（不带尾部分隔符） */
 	getPath(name: OsPathName): Promise<string> { return this.call('getPath', { name }); }

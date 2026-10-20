@@ -1,20 +1,15 @@
-// winsock2 必须排在 Windows.h 之前（Os.h 会带上 Windows.h），否则两个版本的
-// socket 定义会打架。iphlpapi / wtsapi32 依赖它，所以整组都放在最前面
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <iphlpapi.h>
-#include <wtsapi32.h>
+#include "Os.h" // 自带 Windows.h：下面这批系统头都要用到它的基础类型
 
 #include <cstring>
 #include <intrin.h>
 #include <vector>
-#include <shlobj.h>  // SHGetKnownFolderPath / FOLDERID_*
-#include <wincred.h> // CredWrite / CredRead / CredDelete / CredEnumerate
+#include <shlobj.h>   // SHGetKnownFolderPath / FOLDERID_*
+#include <wincred.h>  // CredWrite / CredRead / CredDelete / CredEnumerate
+#include <wtsapi32.h> // WTSRegisterSessionNotification：接锁屏通知
 
 // JsonArray::Append 是 IVector 的方法，要显式带上集合头文件（Json.cpp 同理）
 #include <winrt/Windows.Foundation.Collections.h>
 
-#include "Os.h"
 #include "Json.h"
 #include "Util.h"
 #include "Win.h"
@@ -107,7 +102,6 @@ void Os::handleApi(const std::wstring& method, const JsonObject& params, Page* p
 	else if (method == L"getDiskId") getDiskId(result);
 	else if (method == L"getLang") getLang(params, result);
 	else if (method == L"getColor") getColor(result);
-	else if (method == L"getIpAddr") getIpAddr(result);
 	else if (method == L"getPath") getPath(params, result);
 	else if (method == L"preventSleep") preventSleep(result);
 	else if (method == L"stopPreventSleep") stopPreventSleep(result);
@@ -200,72 +194,6 @@ void Os::getColor(JsonObject& result)
 	data.SetNamedValue(L"desktop", JsonValue::CreateStringValue(colorToHex(GetSysColor(COLOR_BACKGROUND))));
 	Json::setOk(result);
 	result.SetNamedValue(L"data", data);
-}
-
-void Os::getIpAddr(JsonObject& result)
-{
-	WSADATA wsa;
-	if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) { Json::setError(result, L"初始化 Winsock 失败"); return; }
-
-	// 先按经验值申请，不够时 GetAdaptersAddresses 会回填所需大小，再取一次
-	ULONG size = 15000;
-	std::vector<char> buffer(size);
-	auto adapters = reinterpret_cast<PIP_ADAPTER_ADDRESSES>(buffer.data());
-	auto code = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_INCLUDE_PREFIX, nullptr, adapters, &size);
-	if (code == ERROR_BUFFER_OVERFLOW)
-	{
-		buffer.resize(size);
-		adapters = reinterpret_cast<PIP_ADAPTER_ADDRESSES>(buffer.data());
-		code = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_INCLUDE_PREFIX, nullptr, adapters, &size);
-	}
-	if (code != ERROR_SUCCESS)
-	{
-		WSACleanup();
-		Json::setError(result, L"取网卡信息失败");
-		return;
-	}
-
-	JsonArray list;
-	for (auto adapter = adapters; adapter; adapter = adapter->Next)
-	{
-		if (adapter->OperStatus != IfOperStatusUp) continue; // 未启用的网卡
-		if (adapter->PhysicalAddressLength == 0) continue;   // 没有 MAC：回环、虚拟网卡之类
-
-		JsonObject item;
-		item.SetNamedValue(L"name", JsonValue::CreateStringValue(adapter->FriendlyName));
-		wchar_t mac[18];
-		swprintf_s(mac, L"%02X-%02X-%02X-%02X-%02X-%02X",
-			adapter->PhysicalAddress[0], adapter->PhysicalAddress[1], adapter->PhysicalAddress[2],
-			adapter->PhysicalAddress[3], adapter->PhysicalAddress[4], adapter->PhysicalAddress[5]);
-		item.SetNamedValue(L"mac", JsonValue::CreateStringValue(mac));
-
-		JsonArray addresses;
-		for (auto unicast = adapter->FirstUnicastAddress; unicast; unicast = unicast->Next)
-		{
-			auto addr = unicast->Address.lpSockaddr;
-			char text[INET6_ADDRSTRLEN];
-			if (addr->sa_family == AF_INET)
-			{
-				auto ipv4 = reinterpret_cast<sockaddr_in*>(addr);
-				if (!inet_ntop(AF_INET, &ipv4->sin_addr, text, sizeof(text))) continue;
-				if (std::strcmp(text, "127.0.0.1") == 0) continue; // 回环地址不算
-			}
-			else if (addr->sa_family == AF_INET6)
-			{
-				auto ipv6 = reinterpret_cast<sockaddr_in6*>(addr);
-				if (!inet_ntop(AF_INET6, &ipv6->sin6_addr, text, sizeof(text))) continue;
-				if (std::strcmp(text, "::1") == 0) continue;
-			}
-			else continue;
-			addresses.Append(JsonValue::CreateStringValue(Util::utf8ToWide(text)));
-		}
-		item.SetNamedValue(L"addresses", addresses);
-		list.Append(item);
-	}
-
-	WSACleanup();
-	Json::setOk(result);
-	result.SetNamedValue(L"data", list);
 }
 
 void Os::getPath(const JsonObject& params, JsonObject& result)

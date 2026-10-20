@@ -25,6 +25,7 @@
 | 16 | 本地数据库（SQLite） | **已落地**：`Db.open(name?)` 返回实例，实例上 `exec()` / `run()` / `get()` / `all()` / `close()`（见 `../doc/db.md`）。库文件默认在数据目录 `db/` 下，也可给完整路径自己指定。安全上**禁用 `ATTACH`**（否则任意 SQL 能绕过 `open` 的路径约束） |
 | 17 | 系统凭据（凭据管理器） | **已落地**：`os.credWrite(key, value)` / `os.credRead(key)`（不存在返回 `null`）/ `os.credDelete(key)`（幂等）/ `os.credList(prefix?)`（只给 key，见 `../doc/os.md`）。一律"普通凭据"，存在**本机**这一栏：不漫游、只对当前用户可见 |
 | 18 | 注册表 | **已落地**：`regedit.get(key, name?)`（不存在返回 `null`）/ `regedit.set(key, name, value)`（键不存在时自动逐层建）/ `regedit.deleteKey(key)`（递归）/ `regedit.listKeys(key)` / `regedit.listValues(key)`（见 `../doc/regedit.md`）。键路径写成一整条，跟 reg.exe 一样；根键简写与全名都认。**写 HKLM 需要管理员** |
+| 19 | 网络 | **部分落地**：`Net.getAddress()` 取本机各网卡的名字 / MAC / IP 地址（静态方法，原 `os.getIpAddr()` 迁来并改名，见 `../doc/net.md`）。已过滤未启用网卡与回环地址。**待实现**：联网状态变化事件、本机端口占用查询 |
 
 ## 规划中的能力（已列入待办）
 

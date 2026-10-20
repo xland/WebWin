@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin 网络 API 演示</title>
+	<!-- 公共样式：所有演示页共用一套盒子 / 按钮 / 输入框，见 style.css -->
+	<link rel="stylesheet" href="style.css">
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section>
+		<h2>网卡地址（Net.getAddress）</h2>
+		<button onclick="getAddress()">Net.getAddress()</button>
+		<div class="note">
+			这是<b>静态</b>方法，直接用类型调用 —— 不用 new，也没有 Net 实例。<br>
+			一块网卡可以同时有 IPv4 和 IPv6 地址，都会给。<br>
+			已过滤掉三类：未启用的网卡、没有 MAC 的（回环、虚拟网卡之类）、
+			回环地址（<code>127.0.0.1</code> / <code>::1</code>）。<br>
+			这个能力原先挂在 <code>os</code> 域下（<code>os.getIpAddr()</code>），现已迁到 <code>Net</code>。
+		</div>
+	</section>
+
+	<script>
+		// ---------- 网卡地址 ----------
+		async function getAddress() {
+			log('── Net.getAddress()');
+			try {
+				const adapters = await Net.getAddress();
+				log(`  → ${adapters.length} 块网卡`, 'ok');
+				for (const item of adapters) {
+					log(`  ${item.name}  ${item.mac}`);
+					// 单块网卡常常同时有 IPv4 和 IPv6，逐个往下缩进打印
+					for (const addr of item.addresses) log(`    ${addr}`, 'ok');
+				}
+			} catch (e) {
+				log(`  失败：${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// ---------- 启动 ----------
+		window.addEventListener('load', () => {
+			log(`SDK 就绪：Net 类型${typeof Net === 'undefined' ? '缺失' : '已注入'}`);
+		});
+	</script>
+</body>
+
+</html>

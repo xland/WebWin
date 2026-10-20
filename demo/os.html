@@ -49,12 +49,6 @@
 	</section>
 
 	<section>
-		<h2>网卡与 IP</h2>
-		<button onclick="getIpAddr()">os.getIpAddr()</button>
-		<div class="note">只返回已启用、有 MAC 的网卡，且不含 127.0.0.1 / ::1。</div>
-	</section>
-
-	<section>
 		<h2>常用目录（os.getPath）</h2>
 		<button onclick="getPath('home')">home</button>
 		<button onclick="getPath('appData')">appData</button>
@@ -144,15 +138,6 @@
 				log(`os.getLang(${JSON.stringify(scope)}) → ${data}`, 'ok');
 			} catch (e) {
 				log(`os.getLang(${JSON.stringify(scope)}) → 失败：${e && e.message ? e.message : e}`, 'err');
-			}
-		}
-
-		async function getIpAddr() {
-			try {
-				const data = await os.getIpAddr();
-				log(`os.getIpAddr() → ${JSON.stringify(data)}`, 'ok');
-			} catch (e) {
-				log(`os.getIpAddr() → 失败：${e && e.message ? e.message : e}`, 'err');
 			}
 		}
 

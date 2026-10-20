@@ -29,7 +29,6 @@ private:
 	/** 取语言；scope 区分要的是"当前用户"的还是"系统"的 */
 	static void getLang(const JsonObject& params, JsonObject& result);
 	static void getColor(JsonObject& result);
-	static void getIpAddr(JsonObject& result);
 	// 取系统常用目录（home / appData / temp / desktop / ...）的绝对路径
 	static void getPath(const JsonObject& params, JsonObject& result);
 	static void preventSleep(JsonObject& result);

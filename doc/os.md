@@ -46,16 +46,6 @@ const id  = await os.getCpuId();
 }
 ```
 
-## 网络
-
-`os.getIpAddr()` 返回所有已启用网卡的地址：
-
-```ts
-{ name: string; mac: string; addresses: string[] }[]
-```
-
-已过滤掉未启用的网卡和回环地址（`127.0.0.1` / `::1`）。
-
 ## 常用目录
 
 `os.getPath(name)` 返回该目录的绝对路径（不带尾部分隔符）：
