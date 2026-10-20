@@ -11,6 +11,10 @@
 #include "Win.h"
 #include "Json.h"
 #include "Util.h"
+#include <chrono>
+
+// JsonArray::Append 是 IVector 的方法，要显式带上集合头文件（Json.cpp / Display.cpp 同理）
+#include <winrt/Windows.Foundation.Collections.h>
 
 using namespace winrt::Windows::Data::Json;
 
@@ -45,6 +49,7 @@ void App::init()
         // 建窗口不碰数据目录（createCtrl 环境未就绪时会内部返回，等 Env::onEnvReady 补），
         // 把它排在 Env::init 之前，是为了让窗口尽早出现，不必等 WebView2 就绪
         auto windowConfig = app->readPackageJson();
+        app->initSingleInstance(); // 可能直接退出（被拒），也可能标记本进程为"被允许的额外实例"
         app->initDataPath();
         Win::Create(windowConfig); // 空对象也行：Win::readConfig 每个字段都会回落到默认值
         Env::init();
@@ -60,6 +65,28 @@ void App::handleApi(const std::wstring& method, const JsonObject& params, Page* 
 {
 	// 立即退出：不关窗口、不弹确认、也不发退出前的事件（框架目前没有这类事件）。
 	// 只投一条 WM_QUIT，消息循环退出后由 main 把它作为进程退出码返回（见 main.cpp）
+	// 事件订阅：app 与窗口无关，订阅走 NO_WINDOW 那条（见 Win::fireEvent）。
+	// 页面侧 app.on('second-instance') 的首个订阅者会触发本分支把订阅登记进表，
+	// 之后 Win::fireEvent(NO_WINDOW, ...) 才能找到订阅者并下发
+	if (method == L"on" || method == L"off")
+	{
+		auto name = Json::getString(params, L"name", L"");
+		if (name.empty()) { Json::setError(result, L"invalid event subscription"); return; }
+		if (method == L"on") Win::subscribeEvent(Win::NO_WINDOW, name, page, frame);
+		else Win::unsubscribeEvent(Win::NO_WINDOW, name, page, frame);
+		Json::setOk(result);
+		return;
+	}
+
+	// 页面在 second-instance 事件里调用：放行当前在等裁决的那一个第二实例。
+	// 不调用则一律拒绝（server 侧 2 秒超时兜底），这是默认行为
+	if (method == L"allowSecondInstanceOnce")
+	{
+		get()->allowSecondInstanceOnce();
+		Json::setOk(result);
+		return;
+	}
+
 	if (method == L"exit")
 	{
 		PostQuitMessage(Json::getInt(params, L"exitCode", 0));
@@ -194,6 +221,9 @@ JsonObject App::readPackageJson()
 		// 没配这个段落时是空对象，readConfig 读不到任何键，于是全走成员默认值
 		windowConfig = Json::getObject(webwin, L"window");
 
+		// 单实例开关在**顶层**（不在 webwin 段内），所以从根对象 json 读
+		secondInstanceNotify = Json::getBool(json, L"secondInstanceNotify", secondInstanceNotify);
+
 		auto vers = Json::getIntArray(webwin, L"version");
 		if (vers.size() >= 3) version = { vers[0], vers[1], vers[2] };
 	}
@@ -204,4 +234,145 @@ JsonObject App::readPackageJson()
 	// 必须在窗口呈现之前调用
 	SetCurrentProcessExplicitAppUserModelID(id.c_str());
 	return windowConfig;
+}
+
+void App::initSingleInstance()
+{
+	if (!secondInstanceNotify) return; // 不开启单例：完全可多开
+	singleInstanceKey = L"WebWinSingleInstance_" + id;
+
+	// 先看是否已有第一实例（同名互斥量已存在）。
+	// 第二实例只 Open 不 Create，因此不会干扰第一实例对互斥量的持有
+	if (HANDLE h = OpenMutexW(SYNCHRONIZE, FALSE, singleInstanceKey.c_str()))
+	{
+		CloseHandle(h);
+		// 是第二（及以后）实例：向第一实例申请，等裁决
+		bool allow = requestSecondInstanceFromFirst();
+		if (!allow)
+		{
+			// 被拒、或第一实例无响应（超时 / 页面没监听 second-instance）：直接退出，
+			// 不创建任何窗口。用 ExitProcess 而非 return，让 main 的消息循环根本不启动
+			ExitProcess(0);
+		}
+		// 被允许继续：本进程正常跑，但不持互斥量、不起管道 server（第一实例仍负责接待）
+		isFirstInstance = false;
+		return;
+	}
+
+	// 是第一实例：持有互斥量（进程退出时自动释放）+ 起管道 server 接待后续实例
+	hSingleInstanceMutex = CreateMutexW(nullptr, FALSE, singleInstanceKey.c_str());
+	isFirstInstance = true;
+	startSecondInstanceServer();
+}
+
+bool App::requestSecondInstanceFromFirst()
+{
+	// 收集本进程的启动参数与工作目录，发给第一实例（同 Electron 的 second-instance）
+	int argc = 0;
+	auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+	JsonArray argvJson{ nullptr };
+	if (argv) for (int i = 0; i < argc; ++i) argvJson.Append(JsonValue::CreateStringValue(argv[i]));
+
+	wchar_t cwd[MAX_PATH]{};
+	GetCurrentDirectoryW(MAX_PATH, cwd);
+
+	JsonObject req;
+	req.SetNamedValue(L"argv", argvJson);
+	req.SetNamedValue(L"cwd", JsonValue::CreateStringValue(cwd));
+	if (argv) LocalFree(argv);
+
+	// 命名管道名 = \\.\pipe\ + 互斥量后缀。CallNamedPipe 一步完成 连接→写→读→断开，
+	// 最后一个参数是整体超时（毫秒）。第一实例无响应就当拒绝 —— 宁可杀掉也不允许多开
+	std::wstring pipeName = L"\\\\.\\pipe\\" + singleInstanceKey;
+	auto reqStr = req.Stringify();
+	auto reqBuf = reqStr.c_str();
+	DWORD reqLen = (DWORD)(reqStr.size() * sizeof(wchar_t));
+
+	wchar_t resBuf[64]{};
+	DWORD resLen = 0;
+	if (!CallNamedPipeW(pipeName.c_str(), (LPVOID)reqBuf, reqLen,
+			resBuf, sizeof(resBuf) - sizeof(wchar_t), &resLen, 3000))
+		return false;
+
+	resBuf[resLen / sizeof(wchar_t)] = 0;
+	auto res = JsonObject::Parse(resBuf);
+	if (!res) return false;
+	return Json::getBool(res, L"allow", false);
+}
+
+void App::startSecondInstanceServer()
+{
+	singleInstanceRunning = true;
+	std::thread(secondInstanceServerLoop, this).detach();
+}
+
+void App::secondInstanceServerLoop(App* self)
+{
+	std::wstring pipeName = L"\\\\.\\pipe\\" + self->singleInstanceKey;
+	while (self->singleInstanceRunning)
+	{
+		HANDLE hPipe = CreateNamedPipeW(pipeName.c_str(),
+			PIPE_ACCESS_DUPLEX, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+			PIPE_UNLIMITED_INSTANCES, 4096, 4096, 0, nullptr);
+		if (hPipe == INVALID_HANDLE_VALUE) break;
+
+		if (ConnectNamedPipe(hPipe, nullptr) || GetLastError() == ERROR_PIPE_CONNECTED)
+		{
+			wchar_t buf[4096]{};
+			DWORD cb = 0;
+			if (ReadFile(hPipe, buf, sizeof(buf) - sizeof(wchar_t), &cb, nullptr) && cb > 0)
+			{
+				buf[cb / sizeof(wchar_t)] = 0;
+				auto req = JsonObject::Parse(buf);
+				if (req)
+				{
+					// reqId 由第一实例统一生成，保证全局唯一：多个第二实例并发启动时不会撞键
+					int reqId = self->nextSecondInstanceReqId.fetch_add(1);
+					req.SetNamedValue(L"reqId", JsonValue::CreateNumberValue((double)reqId));
+					// 挂起等页面裁决：先登记 promise，再排到 UI 线程把事件推给页面。
+					// 页面若调用 app.allowSecondInstanceOnce() 则 set 这个 promise 放行；
+					// 不调用 / 超时则视为拒绝（默认就是拒绝，这是防多开的安全默认）
+					std::promise<bool> p;
+					auto f = p.get_future();
+					{
+						std::lock_guard lock(self->secondInstanceMtx);
+						self->pendingSecondInstance[reqId] = std::move(p);
+					}
+					App::runLater([self, reqId, req] {
+						Win::fireEvent(Win::NO_WINDOW, L"second-instance", req);
+					});
+					// 等裁决，最多 2 秒；超时视为拒绝（页面没回包就别放过多开）
+					bool allow = false;
+					if (f.wait_for(std::chrono::seconds(2)) == std::future_status::ready)
+						allow = f.get();
+
+					// 无论是否被放行都要清掉这条 pending，否则超时后若有人调用
+					// allowSecondInstanceOnce 会 set 一个没人等的 promise（泄漏）
+					{
+						std::lock_guard lock(self->secondInstanceMtx);
+						self->pendingSecondInstance.erase(reqId);
+					}
+
+					// 写回裁决
+					JsonObject res;
+					res.SetNamedValue(L"allow", JsonValue::CreateBooleanValue(allow));
+					auto resStr = res.Stringify();
+					DWORD wcb = 0;
+					WriteFile(hPipe, resStr.c_str(), (DWORD)(resStr.size() * sizeof(wchar_t)), &wcb, nullptr);
+				}
+			}
+		}
+		CloseHandle(hPipe);
+	}
+}
+
+void App::allowSecondInstanceOnce()
+{
+	std::lock_guard lock(secondInstanceMtx);
+	// 放行当前在等待裁决的那一个第二实例（通常唯一；并发时也只放最早的一个）。
+	// 没有在等的请求（事件之外误调）则忽略 —— 默认就是拒绝，无需动作
+	if (pendingSecondInstance.empty()) return;
+	auto it = pendingSecondInstance.begin();
+	it->second.set_value(true);
+	pendingSecondInstance.erase(it);
 }

@@ -188,6 +188,40 @@ WebWin 的所有配置写在 `package.json` 里，集中在顶层对象的 `"web
 > 另外 `prompt` 那个输入框是本框架自己画的窗口（系统没有"带输入框的消息框"），
 > 支持 Tab 切焦点、Enter 确定、Esc 取消。
 
+## 关于 `secondInstanceNotify`
+
+防应用多开。
+
+- `false`（默认）：可多开，不做任何限制。
+- `true`：按 `id` 单实例。第二个实例启动时**不立即退出**，而是把自身的启动参数（`argv`）和工作目录（`cwd`）发给第一个实例，由第一个实例的页面决定放行还是阻止（同 Electron 的 `second-instance` 事件）。
+
+> 这个字段写在 `package.json` 的**顶层**（与 `webwin` 平级），不在 `webwin` 之内 ——
+> 它决定的是"整个进程"是否单例，不属于某个窗口的配置。
+
+```json
+{
+  "secondInstanceNotify": true,
+  "webwin": { "id": "myapp", "name": "我的应用" }
+}
+```
+
+页面侧用 `app.on('second-instance', ...)` 监听；**放行是显式的** —— 在事件处理函数里调用
+`app.allowSecondInstanceOnce()`，那个第二实例才会继续启动。不调用（或事件处理函数之外调用、
+或约 2 秒超时没调用）则第二实例直接退出。
+
+```js
+app.on('second-instance', (info) => {
+  console.log('又启动了一个实例，它的参数是', info.argv, '工作目录是', info.cwd);
+  app.allowSecondInstanceOnce(); // 显式放行这次的第二实例
+});
+```
+
+典型用途：第二个实例用命令行带了一个文件，第一个实例据此在已打开的窗口里打开它，
+而不是让系统再起一个进程。
+
+> **默认阻止**：框架对第二个实例一律先「拦下」，页面不显式调用 `app.allowSecondInstanceOnce()`
+> 就认定拒绝。这是保守默认 —— 既然开了单例，就要保证「没明确放行就不多开」。
+
 ## JS SDK
 
 框架在页面文档创建时（早于页面自身脚本）注入 SDK。页面里可以直接使用两个全局对象：

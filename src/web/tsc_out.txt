@@ -1,0 +1,2 @@
+npm notice run webwin-web@0.0.1 npx
+npm notice run tsc -p tsconfig.json

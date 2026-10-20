@@ -4,6 +4,11 @@
 #include <functional>
 #include <string>
 #include <filesystem>
+#include <map>
+#include <mutex>
+#include <future>
+#include <atomic>
+#include <thread>
 #include <Windows.h>
 #include <wrl.h>
 #include <WebView2.h>
@@ -80,5 +85,29 @@ private:
 	std::wstring name;
 	std::array<int, 3> version{ 1, 1, 1 };
 	bool quitWhenNoWindow{ true };
+
+	// ---- 单实例（secondInstanceNotify）相关 ----
+	// package.json 顶层 secondInstanceNotify：为 true 时按 app.id 单例，第二个实例
+	// 启动会向第一个实例"申请"，由页面监听 second-instance 事件裁决是否放行
+	bool secondInstanceNotify{ false };
+	bool isFirstInstance{ true };     // 本进程是否"第一个实例"（持 mutex + 起管道 server）
+	std::wstring singleInstanceKey;   // mutex / 命名管道名都按它派生（含 app.id）
+	HANDLE hSingleInstanceMutex{ nullptr };
+	std::atomic<bool> singleInstanceRunning{ false }; // 管道 server 线程的停止标志
+
+	// 第二个实例申请时，第一实例把请求挂起等页面裁决：reqId → 裁决结果
+	std::mutex secondInstanceMtx;
+	std::map<int, std::promise<bool>> pendingSecondInstance;
+	std::atomic<int> nextSecondInstanceReqId{ 1 };
+
+	// 在 readPackageJson 之后调用：检测多开、必要时向第一实例申请或起管道 server
+	void initSingleInstance();
+	// 第二实例：连第一实例的管道发 argv+cwd，等裁决；返回 true=允许继续
+	bool requestSecondInstanceFromFirst();
+	// 第一实例：起一个线程监听管道，把申请转成 second-instance 事件推给页面
+	void startSecondInstanceServer();
+	static void secondInstanceServerLoop(App* self);
+	// 页面在 second-instance 事件里调用：放行当前在等裁决的那一个第二实例
+	void allowSecondInstanceOnce();
 };
 

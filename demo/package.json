@@ -2,6 +2,7 @@
   "name": "webwin-demo",
   "version": "1.0.0",
   "private": true,
+  "secondInstanceNotify": true,
   "webwin": {
     "id": "webwin.demo",
     "name": "WebWin 演示应用",

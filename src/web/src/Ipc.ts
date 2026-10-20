@@ -277,6 +277,13 @@ export class Ipc {
 	}
 }
 
+/**
+ * 把一条事件派发给所有监听器。
+ *
+ * 注意：监听器**不**通过返回值影响引擎行为（比如 second-instance 的放行/阻止）。
+ * 需要反向通知引擎的，一律走显式的 app 方法（例如 `app.allowSecondInstanceOnce()`），
+ * 这样既明确，也不会因为某个监听器漏写 return 就悄悄改变语义。
+ */
 function dispatch(winId: number | null, name: string, payload: unknown): void {
 	const set = listeners.get(keyOf(winId, name));
 	if (!set) return;

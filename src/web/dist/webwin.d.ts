@@ -165,6 +165,21 @@ declare class App extends Ipc {
     getName(): Promise<string>;
     /** 应用 ID（任务栏分组、数据目录都按它区分） */
     getID(): Promise<string>;
+    /**
+     * 允许当前正在申请的第二实例继续启动。
+     *
+     * 仅在 `second-instance` 事件的处理函数里调用才有意义：框架默认**拒绝**所有
+     * 第二实例（直接退出），只有你显式调用本方法，才会放行那"一个"申请。
+     * 多个第二实例并发时，每调用一次放行其中最早的一个；在事件之外调用无效（无在等的申请）。
+     *
+     * ```js
+     * app.on('second-instance', (info) => {
+     *   console.log('又启动了一次，参数：', info.argv, '工作目录：', info.cwd);
+     *   app.allowSecondInstanceOnce(); // 放行这个第二实例
+     * });
+     * ```
+     */
+    allowSecondInstanceOnce(): Promise<void>;
 }
 
 // ---- Menu ----
