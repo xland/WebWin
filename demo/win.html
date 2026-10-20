@@ -47,6 +47,15 @@
 		</div>
 	</section>
 
+	<section>
+		<h2>无边框窗口（Win.create + frame:false）</h2>
+		<button onclick="createFramelessWin()">打开自定义边框 / 标题栏的窗口</button>
+		<div class="note">
+			传的就是 package.json 里那套 window 配置，一个字段都不差：<code>frame: false</code> + <code>resizable: true</code>。
+			新窗口加载 winFrameless.html —— 标题栏由 <code>data-caption</code> 标注，8 个 resize 把手由 SDK 自动铺。
+		</div>
+	</section>
+
 	<script>
 		// ---------- 当前窗口 ----------
 		// 每个按钮对应一个函数：调用哪句 API、成功失败各打什么，一眼看全
@@ -225,7 +234,29 @@
 			log('已取消订阅新窗口');
 		}
 
-		// ---------- 切换页面时清理 ----------
+		// ---------- 无边框窗口 ----------
+	// 演示"自定义边框 / 标题栏"：配置结构与 package.json 的 window 节完全一致，
+	// 所以这里写的就是在配置文件里会写的那几个字段
+	let frameless = null;
+
+	async function createFramelessWin() {
+		try {
+			frameless = await Win.create({
+				title: '无边框窗口',
+				frame: false,    // 不要系统边框与标题栏
+				resizable: true, // 可拖拽改变大小 → SDK 会自动铺 8 个把手
+				shadow: true,    // 无边框窗口的阴影靠 DWM：把边框扩展进客户区 1px
+				size: { w: 760, h: 540 },
+				pos: 'centerScreen',
+				webview: { path: 'winFrameless.html' }
+			});
+			log('Win.create({ frame: false }) → ok，新窗口已创建', 'ok');
+		} catch (e) {
+			log(`Win.create → 失败：${e && e.message ? e.message : e}`, 'err');
+		}
+	}
+
+	// ---------- 切换页面时清理 ----------
 		// 外壳（index.html）切换左侧菜单时会调这个函数：
 		// C++ 那边记着"要给这个 iframe 推事件"，不撤的话事件会推给一个已经消失的文档
 		function unsubscribeAll() {

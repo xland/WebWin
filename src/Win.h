@@ -82,5 +82,8 @@ private:
 	bool allowRemoteSdk{ false }; // 是否允许把 SDK 注入到非应用自身来源的页面
 	bool webviewConfigured{ false }; // 是否读到了 webview 配置对象
 	int menuId{ -1 };  // 窗口右键菜单的菜单 id；-1 = 没挂（走浏览器默认的右键菜单）
+	// 是否正在系统原生的移动 / 缩放循环里（WM_ENTERSIZEMOVE ~ WM_EXITSIZEMOVE）。
+	// 循环期间每帧都有 WM_SIZE，重活（重算 hover、通知 WebView 父窗口位移）必须让路
+	bool inSizeMove{ false };
 };
 

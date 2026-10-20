@@ -86,4 +86,7 @@ if (config) {
 	// 事件按子进程 id 送回**发起 spawn 的那个文档**，所以这里也不必接
 	window.regedit = new Regedit(); // 注册表没有"当前键"的概念：所有操作都带完整路径
 	window.Net = Net; // 网卡是机器级的、不是"某个子对象"的，所以只有静态方法
+	// 无边框 + 可缩放：自动铺 8 个 resize 把手。页面想自己来的话，
+	// 在自己的脚本里（DOM ready 之前）调一次 win.removeResizeEdges() 即可阻止
+	window.win.bindFramelessChrome(config.frame === false && config.resizable === true);
 }

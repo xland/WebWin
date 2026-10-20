@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>无边框窗口：自定义边框与标题栏</title>
+	<link rel="stylesheet" href="style.css">
+	<script src="log.js"></script>
+	<style>
+		/* 本页独有：让内容撑满整个窗口，标题栏贴最上面 */
+		html, body { height: 100%; }
+		body {
+			display: flex;
+			flex-direction: column;
+			padding: 0;
+			background: #f6f6f8;
+		}
+
+		/* 标题栏：data-caption 让 SDK 把它接成可拖动区域。
+		   里头的按钮标 data-caption="no-drag"，点它们不触发拖动 */
+		#titlebar {
+			flex: none;
+			height: 36px;
+			display: flex;
+			align-items: center;
+			padding-left: 12px;
+			background: #2b2b30;
+			color: #eee;
+			font-size: 13px;
+			user-select: none;
+			-webkit-user-select: none;
+		}
+		#titlebar .spacer { flex: 1; }
+		/* 标题栏按钮：贴满整条高度，视觉上像原生那三个 */
+		#titlebar button {
+			height: 36px;
+			width: 44px;
+			margin: 0;
+			border: 0;
+			border-radius: 0;
+			background: transparent;
+			color: #eee;
+			font-size: 14px;
+			padding: 0;
+		}
+		#titlebar button:hover { background: #3d3d44; }
+		#titlebar button.danger:hover { background: #c0392b; color: #fff; }
+
+		main {
+			flex: 1;
+			overflow: auto;
+			padding: 16px;
+		}
+		#log {
+			background: #1e1e1e;
+			color: #d4d4d4;
+			font: 12px/1.6 Consolas, "Courier New", monospace;
+			padding: 12px;
+			border-radius: 6px;
+			white-space: pre-wrap;
+			height: 150px;
+			overflow: auto;
+		}
+		#state {
+			font-size: 13px;
+			color: #444;
+			margin: 0 0 12px;
+		}
+	</style>
+</head>
+
+<body>
+	<!-- 标题栏：data-caption 把整条都变成"可拖区域"。
+	     子元素里那三个按钮用 data-caption="no-drag" 标注 → 落在它们上的点击不触发拖动。
+	     SDK 还在窗口四周自动铺了 8 个透明把手（边 6px / 角 8px）。 -->
+	<div id="titlebar" data-caption>
+		<span id="title">无边框窗口</span>
+		<span class="spacer"></span>
+		<button data-caption="no-drag" onclick="minimize()" title="最小化">─</button>
+		<button data-caption="no-drag" onclick="toggleMax()" id="btnMax" title="最大化 / 还原">☐</button>
+		<button data-caption="no-drag" class="danger" onclick="closeWin()" title="关闭">✕</button>
+	</div>
+
+	<main>
+		<section>
+			<h2>试试这些（都是原生行为）</h2>
+			<div id="state">当前状态：—</div>
+			<button onclick="refreshState()">win.isMaximized()</button>
+			<button onclick="removeEdges()">win.removeResizeEdges()</button>
+			<button onclick="onlyLeftRight()">win.setResizeEdges(['left','right'])</button>
+			<button onclick="allEdges()">win.setResizeEdges()（8 个）</button>
+			<button onclick="sysMenu()">win.showSystemMenu()</button>
+			<button class="danger" onclick="closeWin()">win.close()</button>
+			<div class="note">
+				8 个透明把手是 SDK 自动铺的（因为本窗口 <code>frame: false</code> + <code>resizable: true</code>）。
+				拖它们改变窗口大小 —— 贴屏幕边缘还会触发分屏。窗口最大化时把手自动隐藏。
+			</div>
+		</section>
+
+		<section>
+			<h2>标题栏（data-caption）</h2>
+			<div class="note">
+				上面那条深色带就是 <code>&lt;div data-caption&gt;</code>：
+				<b>拖动</b>移动窗口（已最大化时先还原，跟原生标题栏一致）、
+				<b>双击</b>最大化 / 还原、<b>右键</b>弹系统为窗口准备的那个菜单（还原 / 移动 / 大小 / 最小化 / 最大化 / 关闭）。
+				里头三个按钮标了 <code>data-caption="no-drag"</code>，所以点它们不会拖走窗口。
+			</div>
+		</section>
+
+		<section>
+			<h2>日志</h2>
+			<div id="log"></div>
+		</section>
+	</main>
+
+	<script>
+		// 把"调 API 失败"统一成一句话，免得每个函数都写一份
+		function err(e) { return e && e.message ? e.message : String(e); }
+
+		// ---------- 标题栏的三个按钮 ----------
+		async function minimize() {
+			try { await win.minimize(); log('win.minimize() → ok', 'ok'); }
+			catch (e) { log(`win.minimize() → 失败：${err(e)}`, 'err'); }
+		}
+
+		async function toggleMax() {
+			try {
+				if (await win.isMaximized()) await win.restore();
+				else await win.maximize();
+			} catch (e) { log(`切换最大化 → 失败：${err(e)}`, 'err'); }
+			// 等一帧让 resize 事件跑完，再刷新状态文字
+			setTimeout(refreshState, 0);
+		}
+
+		async function closeWin() {
+			try { await win.close(); }
+			catch (e) { log(`win.close() → 失败：${err(e)}`, 'err'); }
+		}
+
+		// ---------- 演示按钮 ----------
+		async function refreshState() {
+			try {
+				const max = await win.isMaximized();
+				document.getElementById('state').textContent =
+					`当前状态：${max ? '已最大化（把手已隐藏）' : '正常（把手可见）'}`;
+				// 按钮文字跟着变，最大化时显示"还原"图标
+				document.getElementById('btnMax').textContent = max ? '❐' : '☐';
+			} catch (e) { log(`win.isMaximized() → 失败：${err(e)}`, 'err'); }
+		}
+
+		async function removeEdges() {
+			try {
+				await win.removeResizeEdges();
+				log('win.removeResizeEdges() → ok，把手已拆；之后框架也不会再自动铺', 'ok');
+			} catch (e) { log(`win.removeResizeEdges() → 失败：${err(e)}`, 'err'); }
+		}
+
+		async function onlyLeftRight() {
+			try {
+				await win.setResizeEdges(['left', 'right']);
+				log("win.setResizeEdges(['left','right']) → ok，只剩左右两条", 'ok');
+			} catch (e) { log(`win.setResizeEdges → 失败：${err(e)}`, 'err'); }
+		}
+
+		async function allEdges() {
+			try {
+				await win.setResizeEdges();
+				log('win.setResizeEdges() → ok，8 个都回来了', 'ok');
+			} catch (e) { log(`win.setResizeEdges → 失败：${err(e)}`, 'err'); }
+		}
+
+		async function sysMenu() {
+			try { await win.showSystemMenu(); log('win.showSystemMenu() → ok', 'ok'); }
+			catch (e) { log(`win.showSystemMenu() → 失败：${err(e)}`, 'err'); }
+		}
+
+		// ---------- 切换页面时清理（外壳 index.html 切换左侧菜单时会调它） ----------
+		const offFns = [];
+		function unsubscribeAll() { offFns.forEach((f) => f()); offFns.length = 0; }
+
+		// ---------- 启动 ----------
+		// 拖边框 / 拖标题栏时 resize、move 每秒来几十次。每次都往日志里追加节点再滚到底，
+		// 加上 refreshState() 里那次 isMaximized() 的 IPC 往返，页面会被自己拖慢。
+		// 所以只保留一段时间的最后一次 —— 日志里看到的是最终尺寸，手感也不受影响
+		function debounce(fn, ms) {
+			let timer = 0;
+			return (arg) => {
+				clearTimeout(timer);
+				timer = setTimeout(() => fn(arg), ms);
+			};
+		}
+
+		window.addEventListener('load', () => {
+			log(`SDK 就绪：win 对象${typeof win === 'undefined' ? '缺失' : '已注入'}`);
+			if (typeof win === 'undefined') return;
+
+			const onResize = debounce((p) => {
+				log(`resize → ${p.width} × ${p.height}`, 'evt');
+				refreshState();
+			}, 120);
+			offFns.push(win.on('resize', onResize));
+			offFns.push(win.on('move', debounce((p) => log(`move → (${p.x}, ${p.y})`, 'evt'), 120)));
+			refreshState();
+		});
+	</script>
+</body>
+
+</html>

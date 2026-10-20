@@ -33,6 +33,10 @@ interface WebWinConfig {
     origin: string;
     /** 当前窗口的 id，由 C++ 注入；SDK 据此构造全局 win 对象 */
     winId?: number;
+    /** 当前窗口是否带系统边框（false = 无边框），由 C++ 注入 */
+    frame?: boolean;
+    /** 当前窗口是否可拖拽改变大小，由 C++ 注入 */
+    resizable?: boolean;
     /**
      * 应用基准目录（package.json 所在目录），由 C++ 注入。
      * `path.resolve()` / `path.relative()` 拿它当基准 —— 框架里没有 cwd 概念
@@ -474,6 +478,8 @@ declare class Path {
 interface WinOptions {
     [key: string]: unknown;
 }
+/** 窗口的一条边或一个角：铺把手、发起缩放时的方向 */
+type ResizeEdge = 'top' | 'bottom' | 'left' | 'right' | 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight';
 /**
  * 一个窗口。
  *
@@ -484,6 +490,12 @@ interface WinOptions {
 declare class Win extends Ipc {
     private static readonly domain;
     protected type: string;
+    /** 当前铺着的 resize 把手 */
+    private edgeEls;
+    /** 开发者显式干预过把手（set / remove）→ 框架不再自动铺 */
+    private edgesHandled;
+    /** resize 订阅只挂一次 */
+    private edgeResizeBound;
     private constructor();
     /** 创建一个新窗口，resolve 出来的对象窗口 id 已就绪 */
     static create(options?: WinOptions): Promise<Win>;
@@ -498,11 +510,60 @@ declare class Win extends Ipc {
     move(x: number, y: number): Promise<void>;
     close(): Promise<void>;
     destroy(): Promise<void>;
+    /** 窗口当前是否处于最大化 */
+    isMaximized(): Promise<boolean>;
+    /**
+     * 进入系统原生的"移动窗口"循环。
+     *
+     * 给自定义标题栏用：在标题栏区域 `mousedown` 时调它，之后的拖动就交给系统，
+     * 贴边分屏、最大化动画这些原生行为都还在。
+     */
+    startDrag(): Promise<void>;
+    /**
+     * 进入系统原生的"改变窗口大小"循环，方向由 edge 指定。
+     *
+     * 给自定义边框用：`win.setResizeEdges()` 铺出来的把手内部就是调它。
+     */
+    startResize(edge: ResizeEdge): Promise<void>;
+    /** 弹出系统为窗口准备的那个菜单（还原 / 移动 / 大小 / 最小化 / 最大化 / 关闭） */
+    showSystemMenu(): Promise<void>;
     /**
      * 挂右键菜单：在本窗口里点右键就弹它。
      * 传 null 解绑 —— 之后重新走浏览器默认的右键菜单
      */
     setContextMenu(menu: Menu | null): Promise<void>;
+    /**
+     * 在窗口的四边 / 四角铺透明把手，拖它们即改变窗口大小。
+     *
+     * - 不传参数：8 个全建（4 条边 + 4 个角）
+     * - 传一个或一组方向：只建指定的那些
+     * - **每次调用先清掉上一批**，不会叠加
+     *
+     * 窗口最大化时把手没意义（系统本来也不让改大小），会自动隐藏。
+     */
+    setResizeEdges(edges?: ResizeEdge | ResizeEdge[]): Promise<void>;
+    /**
+     * 拆掉全部把手。
+     *
+     * 顺带也**阻止**框架之后自动铺：在页面自己的脚本里（DOM ready 之前）调一次，
+     * 就等于对自动创建投了反对票。
+     */
+    removeResizeEdges(): Promise<void>;
+    /**
+     * @internal 框架安装 SDK 后调用，开发者不用管。
+     *
+     * `autoEdges` 为 true 时（无边框 + 可缩放的窗口）自动铺 8 个把手；
+     * `[data-caption]` 的标题栏绑定则无条件做。
+     */
+    bindFramelessChrome(autoEdges: boolean): void;
+    /** 造一个把手：只用来接 mousedown，本身完全透明 */
+    private createEdgeEl;
+    /** 最大化时把手藏起来：系统本就不允许改大小，留着只会挡住内容 */
+    private syncEdgeVisibility;
+    private bindEdgeResize;
+    /** 把 `[data-caption]` 标出来的区域接成标题栏：拖拽移动、双击最大化、右键出系统菜单 */
+    private bindCaptionDrag;
+    private toggleMaximize;
 }
 
 // ---- Display ----

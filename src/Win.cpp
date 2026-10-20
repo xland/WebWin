@@ -62,6 +62,7 @@ namespace {
 		*reinterpret_cast<bool*>(found) = true;
 		return TRUE;
 	}
+
 }
 
 int Win::lastId = 0;
@@ -176,8 +177,19 @@ void Win::createNativeWindow()
 	else
 	{
 		// 无边框窗口：非客户区在 WM_NCCALCSIZE 中裁掉；
-		// 阴影由 applyDwmAttributes() 里的 DWM 调用负责
-		style |= WS_POPUP;
+		// 阴影由 applyDwmAttributes() 里的 DWM 调用负责。
+		// WS_SYSMENU 是**故意留着的**：它本身不画标题栏（那要 WS_CAPTION），
+		// 但窗口得有系统菜单，自定义标题栏上右键才弹得出原生那个菜单（见 startDrag 的注释）
+		style |= WS_POPUP | WS_SYSMENU;
+		// WS_THICKFRAME 只为"能被拖拽改变大小"服务：DefWindowProc 的**缩放**循环
+		// 要求窗口在样式上可缩放，纯 WS_POPUP 上发 WM_NCLBUTTONDOWN / HTLEFT 是拖不动的（实测）。
+		// 移动没这限制（HTCAPTION 在任何窗口上都能进移动循环），所以只有 resize 撞这堵墙。
+		// 观感不受影响：WM_NCCALCSIZE 把整个窗口矩形判成客户区，那里没有非客户区，
+		// DWM 自然也就画不出那条边框（applyDwmAttributes 里又关掉了 DWM 的 NC 绘制）
+		if (resizable) style |= WS_THICKFRAME;
+		// 客户区 100% 被 webview 子窗口盖着，父窗口的任何重绘都是白干 + 闪烁。
+		// 没有这两条时，拖边框会看到"父窗口刷底色 → 子窗口再刷内容"的来回跳
+		style |= WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
 		// transparent 未落地：与子窗口 HWND 集成方式存在冲突，见 03-tech-stack.md 的 Airspace 说明
 	}
 	exStyle |= taskbar ? WS_EX_APPWINDOW : WS_EX_TOOLWINDOW;
@@ -362,6 +374,57 @@ void Win::handleApi(const std::wstring& method, const JsonObject& params, int wi
 		SetWindowPos(hwnd, nullptr, Json::getInt(params, L"x", 0), Json::getInt(params, L"y", 0), rect.right - rect.left, rect.bottom - rect.top, SWP_NOZORDER | SWP_NOACTIVATE);
 		target->resetHoverState();
 	}
+	// 无边框窗口的"自定义边框 / 标题栏"：页面（或其铺的把手 DOM）在鼠标按下时调进来，
+	// 由这里把消息喂给 DefWindowProc，让它进系统原生的移动 / 缩放循环。
+	// 这么做的原因：webview 子窗口铺满客户区，父窗口在自己的地盘上收不到 WM_NCHITTEST，
+	// 于是"父窗口 WM_NCHITTEST 返回 HT*"那条原生路子走不通，只能由页面主动发起。
+	// 好处是进的仍是系统那套循环：贴边分屏、最大化动画、最小化动画全都是原生的。
+	else if (method == L"startDrag" || method == L"startResize")
+	{
+		int hit = HTCAPTION;
+		if (method == L"startResize")
+		{
+			auto edge = Json::getString(params, L"edge", L"");
+			// 取值与 WM_NCHITTEST 的返回值一一对应
+			if (edge == L"left") hit = HTLEFT;
+			else if (edge == L"right") hit = HTRIGHT;
+			else if (edge == L"top") hit = HTTOP;
+			else if (edge == L"bottom") hit = HTBOTTOM;
+			else if (edge == L"topLeft") hit = HTTOPLEFT;
+			else if (edge == L"topRight") hit = HTTOPRIGHT;
+			else if (edge == L"bottomLeft") hit = HTBOTTOMLEFT;
+			else if (edge == L"bottomRight") hit = HTBOTTOMRIGHT;
+			else { Json::setError(result, L"unknown edge: " + edge); return; }
+		}
+		// 鼠标此刻被 webview 子窗口 capture 着（同线程，解得掉）：不释放，
+		// 系统收不到后续消息，循环起不来
+		ReleaseCapture();
+		POINT pt{};
+		GetCursorPos(&pt);
+		// 注意这里**故意不判断 IsZoomed、也不自己还原**。
+		// 最大化窗口"按一下不动、真拖起来才还原、还原后跟手"这一整套，是 DefWindowProc
+		// 在 SC_MOVE 循环里做的原生行为。我们先调 ShowWindow(SW_RESTORE) 的话，
+		// 循环拿到的就已经是个普通窗口，它只管平移 —— 于是"一按下就还原"且位置不对。
+		// 把它交给系统，两件事一起对了
+		// 用 PostMessage 而非 SendMessage：本调用是从 WebView2 的回调里进来的，
+		// 同步跑完整个模态循环会被 Runtime 判成重入（见 doc/dialog.md 那条踩坑记录）
+		PostMessage(hwnd, WM_NCLBUTTONDOWN, hit, MAKELPARAM(pt.x, pt.y));
+	}
+	else if (method == L"showSystemMenu")
+	{
+		// 系统菜单是 DefWindowProc 在**右键抬起**时弹的（内部转 WM_SYSCOMMAND / SC_MOUSEMENU），
+		// 且拿 lParam 当弹出位置 —— 不传坐标会弹到屏幕左上角，所以按下抬起都带上坐标
+		POINT pt{};
+		GetCursorPos(&pt);
+		ReleaseCapture();
+		PostMessage(hwnd, WM_NCRBUTTONDOWN, HTCAPTION, MAKELPARAM(pt.x, pt.y));
+		PostMessage(hwnd, WM_NCRBUTTONUP, HTCAPTION, MAKELPARAM(pt.x, pt.y));
+	}
+	else if (method == L"isMaximized")
+	{
+		Json::setOk(result);
+		result.SetNamedValue(L"data", JsonValue::CreateBooleanValue(IsZoomed(hwnd) != FALSE));
+	}
 	else if (method == L"setContextMenu")
 	{
 		// 挂窗口右键菜单：传 menuId < 0 表示解绑（重新走浏览器默认的右键菜单）
@@ -422,12 +485,29 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		payload.SetNamedValue(L"width", JsonValue::CreateNumberValue(bounds.right - bounds.left));
 		payload.SetNamedValue(L"height", JsonValue::CreateNumberValue(bounds.bottom - bounds.top));
 		Win::fireEvent(winObj->id, L"resize", payload);
-		// 覆盖原生触发的几何变化：拖边缘、双击标题栏、Win+方向键分屏、最大化 / 还原
+		// 覆盖原生触发的几何变化：Win+方向键分屏、最大化 / 还原、双击标题栏
 		// （鼠标没动，:hover 会留在原来的元素上）。也覆盖 handleApi 里的
 		// maximize / restore / resize —— 它们同步触发本消息，那边就不必再清一次。
-		// 最小化例外：WM_SYSCOMMAND 的 SC_MINIMIZE 更早且窗口尚未隐藏，那时已经清过
-		if (wParam != SIZE_MINIMIZED) winObj->resetHoverState();
+		// 两种例外：
+		//   - 最小化：WM_SYSCOMMAND 的 SC_MINIMIZE 更早且窗口尚未隐藏，那时已经清过
+		//   - 正在拖边框：循环里每帧都有 WM_SIZE，而鼠标本来就在动，浏览器自己会重算命中；
+		//     这时候再插一脚（FindWindowEx + 通知 WebView 父窗口位移 + 4 条消息）
+		//     既没必要，又会和 put_Bounds 抢，是缩放抖动的主因之一。收尾在 WM_EXITSIZEMOVE
+		if (wParam != SIZE_MINIMIZED && !winObj->inSizeMove) winObj->resetHoverState();
 		return 0;
+	}
+	case WM_ENTERSIZEMOVE:
+	{
+		// 进了系统的移动 / 缩放模态循环：从这里开始每帧都是 WM_SIZE，重活让路
+		winObj->inSizeMove = true;
+		break;
+	}
+	case WM_EXITSIZEMOVE:
+	{
+		// 循环结束补一次，把缩放过程中留下的 hover 残留收干净
+		winObj->inSizeMove = false;
+		winObj->resetHoverState();
+		break;
 	}
 	case WM_MOVE:
 	{
@@ -448,6 +528,11 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	}
 	case WM_GETMINMAXINFO:
 	{
+		// 先让 DefWindowProc 把这套约束填成系统的默认值（最大跟踪尺寸、最大化尺寸 / 位置）。
+		// 不能省：以前无边框窗口是纯 WS_POPUP、压根不能缩放，直接 return 0 从来不出事；
+		// 一旦带上 WS_THICKFRAME，缩放循环每帧都拿这份不完整的约束去夹尺寸 ——
+		// 最小值有、最大值没有，就是窗口疯狂抖动的来源
+		DefWindowProc(hwnd, msg, wParam, lParam);
 		auto mmi = reinterpret_cast<MINMAXINFO*>(lParam);
 		if (winObj->minWidth > 0) mmi->ptMinTrackSize.x = winObj->minWidth;
 		if (winObj->minHeight > 0) mmi->ptMinTrackSize.y = winObj->minHeight;
@@ -457,10 +542,28 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	}
 	case WM_NCCALCSIZE:
 	{
-		// 无边框：让客户区等于整个窗口矩形，裁掉标题栏与边框。
-		// 带 WS_CAPTION / WS_THICKFRAME 时 DWM 仍会在窗口外侧绘制阴影
-		if (wParam == TRUE && !winObj->frame) return WVR_REDRAW;
-		break;
+		if (wParam != TRUE || winObj->frame) break;
+		// 无边框：客户区 = 整个窗口矩形，裁掉系统要画的标题栏与边框。
+		//
+		// 必须**显式改写 rgrc[0]**。返回 WVR_REDRAW 并不等于"客户区等于窗口矩形"，
+		// 系统照样按默认算法扣掉 WS_THICKFRAME 的边框宽度（WS_POPUP 时代边框宽 0，
+		// 才碰巧是对的）；而且 WVR_REDRAW 是"整个客户区作废重绘"，缩放时每帧全窗口重绘，
+		// 叠上没有 WS_CLIPCHILDREN 就是满屏闪
+		auto params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
+		if (params->lppos)
+		{
+			// lppos 里的 x / y 只在真的挪了位置时有效，否则沿用当前窗口矩形
+			RECT cur{};
+			GetWindowRect(hwnd, &cur);
+			RECT& target = params->rgrc[0];
+			const int left = (params->lppos->flags & SWP_NOMOVE) ? cur.left : params->lppos->x;
+			const int top = (params->lppos->flags & SWP_NOMOVE) ? cur.top : params->lppos->y;
+			target.left = left;
+			target.top = top;
+			target.right = left + params->lppos->cx;
+			target.bottom = top + params->lppos->cy;
+		}
+		return 0;
 	}
 	case WM_DESTROY:
 	{

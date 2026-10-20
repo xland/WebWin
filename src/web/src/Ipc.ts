@@ -19,6 +19,10 @@ export interface WebWinConfig {
 	origin: string;
 	/** 当前窗口的 id，由 C++ 注入；SDK 据此构造全局 win 对象 */
 	winId?: number;
+	/** 当前窗口是否带系统边框（false = 无边框），由 C++ 注入 */
+	frame?: boolean;
+	/** 当前窗口是否可拖拽改变大小，由 C++ 注入 */
+	resizable?: boolean;
 	/**
 	 * 应用基准目录（package.json 所在目录），由 C++ 注入。
 	 * `path.resolve()` / `path.relative()` 拿它当基准 —— 框架里没有 cwd 概念

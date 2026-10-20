@@ -111,6 +111,9 @@ void Page::injectSdk()
 	config.SetNamedValue(L"allowRemote", JsonValue::CreateBooleanValue(win->allowRemoteSdk));
 	config.SetNamedValue(L"origin", JsonValue::CreateStringValue(win->getPageOrigin()));
 	config.SetNamedValue(L"winId", JsonValue::CreateNumberValue(win->getId())); // 当前窗口 id
+	// 窗口形态：SDK 据此决定要不要自动铺 resize 把手（无边框 + 可缩放才铺）
+	config.SetNamedValue(L"frame", JsonValue::CreateBooleanValue(win->frame));
+	config.SetNamedValue(L"resizable", JsonValue::CreateBooleanValue(win->resizable));
 	// 应用基准目录（package.json 所在目录）：JS 的 path.resolve() / relative() 拿它当基准。
 	// 框架里没有 cwd 概念（全库不调 GetCurrentDirectory），这里取代 Node 的 process.cwd()
 	config.SetNamedValue(L"appPath", JsonValue::CreateStringValue(App::getPackageBaseDir().wstring()));
