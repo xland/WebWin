@@ -1,5 +1,6 @@
 #include <shlobj.h>
 #include <shlwapi.h>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 
@@ -45,6 +46,86 @@ namespace {
 		holder.As(&frame2);
 		return frame2;
 	}
+
+	/**
+	 * 一次**还没弹**的 JS 对话框请求。
+	 *
+	 * 存在的唯一原因：弹框不能在 WebView2 回调里当场跑。MessageBox 和自建的输入框
+	 * 窗口都是嵌套的模态消息循环，在回调栈上开循环会被 Runtime 判重入并
+	 * `__debugbreak()`（见 doc/dialog.md「为什么不能当场弹」）。
+	 * 所以先取 deferral 把事件挂起，等栈退干净了再弹。
+	 */
+	struct ScriptDialogTask
+	{
+		COREWEBVIEW2_SCRIPT_DIALOG_KIND kind{ COREWEBVIEW2_SCRIPT_DIALOG_KIND_ALERT };
+		std::wstring message;     // alert / confirm / prompt 的提示；beforeunload 的文案
+		std::wstring defaultText; // 仅 prompt：输入框的初始内容
+		HWND owner{ nullptr };
+		ComPtr<ICoreWebView2ScriptDialogOpeningEventArgs> args;
+		ComPtr<ICoreWebView2Deferral> deferral;
+	};
+
+	std::deque<ScriptDialogTask> pendingScriptDialogs;
+
+	/** 拿属主窗口的标题当对话框标题；没有（窗口已关 / 无标题）就用 fallback */
+	std::wstring dialogTitle(HWND owner, const wchar_t* fallback)
+	{
+		if (!owner) return fallback;
+		wchar_t buf[256]{};
+		if (GetWindowText(owner, buf, 256) > 0) return buf;
+		return fallback;
+	}
+
+	/** 真正弹框。由 App::runLater 排到下一次消息循环执行 */
+	void runScriptDialog()
+	{
+		if (pendingScriptDialogs.empty()) return;
+		auto task = std::move(pendingScriptDialogs.front());
+		pendingScriptDialogs.pop_front();
+
+		// 排队期间窗口可能已经关了：句柄失效就退化成无属主，别把野句柄递给 Win32
+		HWND owner = IsWindow(task.owner) ? task.owner : nullptr;
+		bool accepted = false; // 是否放行：confirm 的"是"、prompt 的"确定"
+
+		switch (task.kind)
+		{
+		case COREWEBVIEW2_SCRIPT_DIALOG_KIND_ALERT:
+			// alert 没有返回值，Accept 只是让那句 JS 继续往下走
+			MessageBox(owner, task.message.c_str(), dialogTitle(owner, L"提示").c_str(),
+				MB_OK | MB_ICONINFORMATION);
+			accepted = true;
+			break;
+
+		case COREWEBVIEW2_SCRIPT_DIALOG_KIND_CONFIRM:
+			accepted = MessageBox(owner, task.message.c_str(), dialogTitle(owner, L"确认").c_str(),
+				MB_YESNO | MB_ICONQUESTION) == IDYES;
+			break;
+
+		case COREWEBVIEW2_SCRIPT_DIALOG_KIND_PROMPT:
+		{
+			std::wstring input;
+			if (Dialog::inputBox(owner, dialogTitle(owner, L"输入").c_str(), task.message, task.defaultText, input))
+			{
+				task.args->put_ResultText(input.c_str());
+				accepted = true;
+			}
+			break;
+		}
+
+		case COREWEBVIEW2_SCRIPT_DIALOG_KIND_BEFOREUNLOAD:
+			// 网页在 onbeforeunload 里返回的那个字符串就是它想问的话，没给才用默认的
+			accepted = MessageBox(owner,
+				task.message.empty() ? L"确定要离开当前页面吗？" : task.message.c_str(),
+				dialogTitle(owner, L"确认离开").c_str(),
+				MB_YESNO | MB_ICONQUESTION) == IDYES;
+			break;
+		}
+
+		// 不 Accept 就等于"用户点了取消"：confirm 拿 false、prompt 拿 null、导航被拦下
+		if (accepted) task.args->Accept();
+		// 不管结果如何都必须收尾，否则页面里那句 JS 会永远挂在等待上
+		task.deferral->Complete();
+	}
 }
 
 
@@ -89,6 +170,19 @@ Page::Page(Win* win, const ComPtr<ICoreWebView2>& webview) :win{ win }, webview{
     this->webview.As(&webview11);
     auto contextMenuCB = Callback<ICoreWebView2ContextMenuRequestedEventHandler>(this, &Page::onContextMenuRequested);
     webview11->add_ContextMenuRequested(contextMenuCB.Get(), nullptr);
+
+    // JS 对话框（alert / confirm / prompt / beforeunload）。
+    // 关掉 WebView2 自带那个 —— 它的标题是"about:blank 显示"这种，放在桌面应用里很出戏。
+    // **关掉的同时必须注册 ScriptDialogOpening**：不注册的话页面里这些调用会直接静默
+    // 失效（alert 什么都不发生、confirm 永远 false），比弹默认框更难排查
+    ComPtr<ICoreWebView2Settings> settings;
+    if (SUCCEEDED(webview->get_Settings(&settings)) && settings)
+        settings->put_AreDefaultScriptDialogsEnabled(win->defaultJsDialog ? TRUE : FALSE);
+    if (!win->defaultJsDialog)
+    {
+        auto dialogCB = Callback<ICoreWebView2ScriptDialogOpeningEventHandler>(this, &Page::onScriptDialog);
+        webview->add_ScriptDialogOpening(dialogCB.Get(), nullptr);
+    }
 
     injectSdk(); // 必须在导航之前注册，之后创建的每个文档都会执行
     loadPage();
@@ -338,6 +432,45 @@ void Page::send(const JsonObject& payload, ICoreWebView2Frame2* frame)
 HRESULT Page::onCloseWindow(ICoreWebView2* sender, IUnknown* args)
 {
     PostMessage(win->hwnd, WM_CLOSE, 0, 0);
+    return S_OK;
+}
+
+HRESULT Page::onScriptDialog(ICoreWebView2* sender, ICoreWebView2ScriptDialogOpeningEventArgs* args)
+{
+    // 弹框不能在回调里当场跑（模态消息循环会被 Runtime 判重入，见 runScriptDialog 的注释）。
+    // 取 deferral 把事件挂起，真正的弹框排到下一次消息循环去做
+    ComPtr<ICoreWebView2Deferral> deferral;
+    if (FAILED(args->GetDeferral(&deferral)) || !deferral) return S_OK;
+
+    ScriptDialogTask task;
+    if (FAILED(args->get_Kind(&task.kind))) task.kind = COREWEBVIEW2_SCRIPT_DIALOG_KIND_ALERT;
+
+    // get_Message / get_DefaultText 给的都是 CoTaskMem 分配的串，必须自己释放
+    LPWSTR msg = nullptr;
+    if (SUCCEEDED(args->get_Message(&msg)) && msg)
+    {
+        task.message = msg;
+        CoTaskMemFree(msg);
+    }
+    LPWSTR def = nullptr;
+    if (SUCCEEDED(args->get_DefaultText(&def)) && def)
+    {
+        task.defaultText = def;
+        CoTaskMemFree(def);
+    }
+
+    task.owner = getHwnd();
+    task.args = args;          // ComPtr 会 AddRef，跨到下一次消息循环仍然有效
+    task.deferral = deferral;
+    pendingScriptDialogs.push_back(std::move(task));
+
+    // 排不进去时当场收尾：App::runLater 返回 false 表示队列没初始化或已关，
+    // 那条任务永远不会跑，而页面里那句 JS 会永远挂住、且没有任何报错
+    if (!App::runLater([] { runScriptDialog(); }))
+    {
+        pendingScriptDialogs.back().deferral->Complete();
+        pendingScriptDialogs.pop_back();
+    }
     return S_OK;
 }
 

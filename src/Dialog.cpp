@@ -349,3 +349,122 @@ void Dialog::itemInFolder(const JsonObject& params, JsonObject& result)
 	if (ret <= 32) { Json::setError(result, L"打开资源管理器失败，错误码=" + std::to_wstring(ret)); return; }
 	Json::setOk(result);
 }
+
+namespace {
+	// inputBox 是同步模态的，同一时刻只可能有一个，所以状态放在文件级变量里就够。
+	// 不绕 GWLP_USERDATA：WM_CREATE 阶段它还设不上，反倒多一处时序坑
+	constexpr wchar_t PROMPT_CLASS[] = L"WebWinPromptBox";
+	HWND promptEdit{ nullptr };
+	bool promptOk{ false };
+	bool promptDone{ false };
+	std::wstring promptText;
+
+	LRESULT CALLBACK promptProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+	{
+		switch (msg)
+		{
+		case WM_COMMAND:
+			if (LOWORD(wParam) == IDOK)
+			{
+				wchar_t buf[4096]{};
+				GetWindowText(promptEdit, buf, 4096);
+				promptText = buf;
+				promptOk = true;
+				promptDone = true;
+			}
+			else if (LOWORD(wParam) == IDCANCEL)
+			{
+				promptOk = false;
+				promptDone = true;
+			}
+			return 0;
+		case WM_CLOSE: // 标题栏的叉等同于取消
+			promptOk = false;
+			promptDone = true;
+			return 0;
+		}
+		return DefWindowProc(hwnd, msg, wParam, lParam);
+	}
+}
+
+bool Dialog::inputBox(HWND owner, const std::wstring& title, const std::wstring& msg,
+	const std::wstring& defaultText, std::wstring& out)
+{
+	// 窗口类只注册一次
+	static const bool registered = [] {
+		WNDCLASSW wc{};
+		wc.lpfnWndProc = promptProc;
+		wc.hInstance = GetModuleHandleW(nullptr);
+		wc.lpszClassName = PROMPT_CLASS;
+		wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+		wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+		return RegisterClassW(&wc) != 0;
+	}();
+	if (!registered) return false;
+
+	constexpr int W = 420, H = 150; // 客户区尺寸
+	RECT rc{ 0, 0, W, H };
+	AdjustWindowRect(&rc, WS_CAPTION | WS_SYSMENU | WS_POPUP, FALSE);
+	const int wndW = rc.right - rc.left;
+	const int wndH = rc.bottom - rc.top;
+
+	// 摆到属主窗口正中间；没有属主就摆工作区中间
+	POINT at{ 0, 0 };
+	RECT area{};
+	if (owner && IsWindow(owner)) GetWindowRect(owner, &area);
+	else SystemParametersInfo(SPI_GETWORKAREA, 0, &area, 0);
+	at.x = area.left + (area.right - area.left - wndW) / 2;
+	at.y = area.top + (area.bottom - area.top - wndH) / 2;
+
+	HWND hwnd = CreateWindowW(PROMPT_CLASS, title.c_str(), WS_CAPTION | WS_SYSMENU | WS_POPUP,
+		at.x, at.y, wndW, wndH, owner, nullptr, GetModuleHandleW(nullptr), nullptr);
+	if (!hwnd) return false;
+
+	auto font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+	auto add = [hwnd, font](LPCWSTR cls, LPCWSTR text, DWORD style,
+		int x, int y, int w, int h, HMENU id) {
+			HWND c = CreateWindowW(cls, text, style | WS_VISIBLE | WS_CHILD,
+				x, y, w, h, hwnd, id, GetModuleHandleW(nullptr), nullptr);
+			SendMessage(c, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+			return c;
+		};
+
+	add(L"Static", msg.c_str(), 0, 12, 14, W - 24, 40, nullptr);
+	// ES_AUTOHSCROLL：内容超长时横向滚动而不是折行 —— prompt 只该有一行
+	promptEdit = add(L"Edit", defaultText.c_str(), WS_BORDER | ES_AUTOHSCROLL,
+		12, 62, W - 24, 24, nullptr);
+	add(L"Button", L"确定", BS_DEFPUSHBUTTON, W - 180, H - 40, 80, 26, reinterpret_cast<HMENU>(IDOK));
+	add(L"Button", L"取消", 0, W - 92, H - 40, 80, 26, reinterpret_cast<HMENU>(IDCANCEL));
+
+	promptOk = false;
+	promptDone = false;
+	promptText.clear();
+
+	// 模态：禁用属主 → 跑自己的消息泵 → 恢复。和 MessageBox 内部做的是同一件事，
+	// 区别只在于我们能在这中间拿到输入框的内容
+	if (owner && IsWindow(owner)) EnableWindow(owner, FALSE);
+	ShowWindow(hwnd, SW_SHOW);
+	SetFocus(promptEdit);
+
+	MSG m{};
+	while (!promptDone && GetMessageW(&m, nullptr, 0, 0) > 0)
+	{
+		// IsDialogMessage 让 Tab 切焦点、Enter 触发默认按钮、Esc 触发取消
+		if (!IsDialogMessage(hwnd, &m))
+		{
+			TranslateMessage(&m);
+			DispatchMessage(&m);
+		}
+	}
+
+	DestroyWindow(hwnd);
+	if (owner && IsWindow(owner))
+	{
+		EnableWindow(owner, TRUE);
+		SetForegroundWindow(owner); // 把焦点还回去，否则属主窗口会退到别处后面
+	}
+
+	if (!promptOk) return false;
+	out = promptText;
+	return true;
+}

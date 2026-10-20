@@ -47,6 +47,9 @@ private:
 	HRESULT onDomLoaded(ICoreWebView2* sender, ICoreWebView2DOMContentLoadedEventArgs* args);
 	HRESULT onRequestPermission(ICoreWebView2* webview, ICoreWebView2PermissionRequestedEventArgs* args);
 	HRESULT onCloseWindow(ICoreWebView2* sender, IUnknown* args);
+	// 页面里弹 JS 对话框（alert / confirm / prompt / beforeunload）。
+	// 只在 webview.defaultJsDialog 为 false 时才注册 —— 为 true 时走 WebView2 自带那套
+	HRESULT onScriptDialog(ICoreWebView2* sender, ICoreWebView2ScriptDialogOpeningEventArgs* args);
 	void injectSdk();
 	void loadPage();
 	/** 把窗口事件推给本页面里的某个文档；frame 为空表示推给顶级文档 */

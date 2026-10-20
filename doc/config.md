@@ -125,6 +125,7 @@ WebWin 的所有配置写在 `package.json` 里，集中在顶层对象的 `"web
 | `path`            | 字符串 | `.`     | 页面来源：一个**目录**或一个 **URL 地址**           |
 | `allowWindowOpen` | 布尔   | `true`  | 是否允许页面中打开新窗口                            |
 | `allowRemoteSdk`  | 布尔   | `false` | 是否允许把 SDK 注入到**非应用自身来源**的页面，见下 |
+| `defaultJsDialog` | 布尔   | `false` | 是否用 WebView2 自带的 JS 对话框，见下             |
 
 `path` 的两种写法：
 
@@ -155,6 +156,37 @@ WebWin 的所有配置写在 `package.json` 里，集中在顶层对象的 `"web
 ```json
 "webview": { "path": ".", "allowRemoteSdk": false }
 ```
+
+## 关于 `defaultJsDialog`
+
+决定页面里 `alert()` / `confirm()` / `prompt()` / `beforeunload` 这四类 JS 对话框由谁弹。
+
+- **`true`**：用 WebView2 自带那个（标题是"about:blank 显示"这类），浏览器默认行为。
+- **`false`（默认）**：关掉它，改由框架弹 **Windows 原生框**：
+
+| JS 调用              | 原生表现                                                       |
+| -------------------- | -------------------------------------------------------------- |
+| `alert(msg)`         | 信息框，只有「确定」                                           |
+| `confirm(msg)`       | 「是 / 否」框，选「是」才返回 `true`                           |
+| `prompt(msg, def)`   | 带输入框的窗口，`def` 是初始内容；取消返回 `null`              |
+| `beforeunload`       | 「是 / 否」框，选「是」才离开                                  |
+
+`beforeunload` 的文案**用网页在 `onbeforeunload` 里返回的那个字符串**，网页没给才用
+「确定要离开当前页面吗？」。所有框的标题取宿主窗口标题，属主也是它 ——
+模态、层级、禁用关系都跟原生一致。
+
+```json
+"webview": { "path": ".", "defaultJsDialog": false }
+```
+
+> **弹框不能发生在 WebView2 的事件回调里**：`MessageBox` 和自建输入框窗口都是嵌套的
+> 模态消息循环，在回调栈上跑会被 Runtime 判重入并 `__debugbreak()`（同一条规则见
+> [对话框 API](dialog.md)）。所以实现上是先取 deferral 挂起事件，再用 `App::runLater`
+> 排到下一次消息循环才真正弹，弹完 `Complete()`。页面感知不到这层 —— JS 那边仍然是
+> 同步拿到结果的。
+>
+> 另外 `prompt` 那个输入框是本框架自己画的窗口（系统没有"带输入框的消息框"），
+> 支持 Tab 切焦点、Enter 确定、Esc 取消。
 
 ## JS SDK
 
@@ -230,5 +262,5 @@ await win2.close();
 ## 字段清单仍在扩充
 
 上面列出的字段**尚未定稿**，后续还会追加（例如页面能力开关：是否允许脚本执行、
-是否允许弹 `alert`、是否与后端通信、是否启用右键菜单等）。
+是否与后端通信、是否启用右键菜单等）。
 新增字段都会保持"可选、有默认值"的风格，不会破坏现有配置。

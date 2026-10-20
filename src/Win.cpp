@@ -150,6 +150,7 @@ void Win::readConfig(const JsonObject& config)
 		webviewPath = Json::getString(webview, L"path", webviewPath);
 		allowWindowOpen = Json::getBool(webview, L"allowWindowOpen", allowWindowOpen);
 		allowRemoteSdk = Json::getBool(webview, L"allowRemoteSdk", allowRemoteSdk);
+		defaultJsDialog = Json::getBool(webview, L"defaultJsDialog", defaultJsDialog);
 	}
 }
 

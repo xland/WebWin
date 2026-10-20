@@ -46,6 +46,15 @@ public:
 	static void run();
 	/** 页面没了：丢掉它排着的请求，否则 run() 会用到悬挂的 Page* */
 	static void removeByPage(Page* page);
+	/**
+	 * 弹一个**带输入框**的原生对话框。返回 false = 用户取消（此时不动 out）。
+	 *
+	 * 不是给页面调的 API，是框架内部接 JS 的 `prompt()` 用的（见 Page::onScriptDialog）。
+	 * 调用方必须已经处在"栈退干净"的时机（App::runLater 排下来的任务里）——
+	 * 它内部是同步的模态循环，在 WebView2 回调里调会被判重入
+	 */
+	static bool inputBox(HWND owner, const std::wstring& title, const std::wstring& msg,
+		const std::wstring& defaultText, std::wstring& out);
 private:
 	/** 选文件 / 选文件夹。data = { cancel: boolean, data: string[] } */
 	static void openPath(const JsonObject& params, HWND owner, JsonObject& result);
