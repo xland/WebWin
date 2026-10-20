@@ -13,6 +13,30 @@ export type FsEncoding = 'utf8' | 'base64' | 'binary';
 export interface FsReadOptions {
 	/** 默认 `utf8` */
 	encoding?: FsEncoding;
+	/**
+	 * 分块读取的块大小（字节）。大于 0 时 `readFile` 进入分块模式：
+	 * 每读一块触发一次 `callback`，而不是一次性返回整份内容。默认 1MB。
+	 * 不传或 <=0 时退化为一次性读取（原有行为）
+	 */
+	chunkSize?: number;
+}
+
+/** 分块读取时传给 callback 的每一块 */
+export interface FsChunk {
+	/** 本块内容（字符串）：`utf8` 模式是文本，`base64` 模式是 base64 串（binary 分块也走 base64） */
+	data: string;
+	/** 第几块，从 0 开始 */
+	index: number;
+	/** 是否最后一块 */
+	isLast: boolean;
+}
+
+/** 分块读取整体完成时的 resolve 值 */
+export interface FsReadResult {
+	/** 文件总字节数 */
+	totalBytes: number;
+	/** 总块数 */
+	totalChunks: number;
 }
 
 export interface FsWriteOptions {
@@ -73,6 +97,16 @@ export class Fs extends Ipc {
 
 	protected type = Fs.domain;
 
+	/** 分块读取用的流序号（每次 readFile 流式调用递增），配合隐藏事件 fs-chunk 路由 callback */
+	private streamSeq = 0;
+	/** streamId -> 本次 readFile 流式的 callback */
+	private chunkHandlers = new Map<number, (chunk: FsChunk) => void>();
+	/** fs-chunk 事件的固定监听：按 payload.streamId 路由到对应 callback（同一引用，Set 去重，只订阅一次） */
+	private fsChunkHandler = (payload: { streamId: number; content: string; index: number; isLast: boolean }) => {
+		const cb = this.chunkHandlers.get(payload.streamId);
+		if (cb) cb({ data: payload.content, index: payload.index, isLast: payload.isLast });
+	};
+
 	/** `access()` 用的位掩码，跟 Node 的 `fs.constants` 一致 */
 	readonly constants = { F_OK: 0, X_OK: 1, W_OK: 2, R_OK: 4 } as const;
 
@@ -86,11 +120,59 @@ export class Fs extends Ipc {
 	 * bin.release();                                          // 用完必须还
 	 * ```
 	 */
-	readFile(path: string, options?: FsReadOptions | 'utf8' | 'base64'): Promise<string>;
-	readFile(path: string, options: 'binary' | { encoding: 'binary' }): Promise<FsBinary>;
-	async readFile(path: string, options: FsReadOptions | FsEncoding = {}): Promise<string | FsBinary> {
+	/**
+	 * 读文件。
+	 *
+	 * - **一次性**（默认）：同 Node 的 `readFile`，整份内容一次性返回。
+	 * - **分块**（传 `callback`）：每读一块触发一次 callback，适合大文件按需处理、
+	 *   不必把整份内容一次性塞进内存。块内容按 `encoding` 给（`utf8` 文本 / `base64` 字节）。
+	 *
+	 * ```ts
+	 * // 一次性
+	 * const text = await fs.readFile('config.json');
+	 * const bin  = await fs.readFile('big.zip', 'binary'); bin.release();
+	 *
+	 * // 分块：每 1MB 触发一次回调
+	 * await fs.readFile('big.zip', { encoding: 'base64', chunkSize: 1024 * 1024 }, (c) => {
+	 *   console.log('第', c.index, '块，是否最后', c.isLast, '内容长', c.data.length);
+	 * });
+	 * ```
+	 *
+	 * 注意：二进制分块（`encoding: 'binary'` + callback）会退化成 base64 字符串，
+	 * 因为分块走的是普通消息通道，拿不到 `binary` 的 ArrayBuffer；要 ArrayBuffer 用
+	 * 一次性的 `fs.readFile(path, 'binary')` 或 `fs.readFileChunk(path, 'binary', start, size)`
+	 */
+	readFile(path: string, options?: FsReadOptions | FsEncoding, callback?: (chunk: FsChunk) => void): Promise<string | FsBinary>;
+	readFile(path: string, options: 'binary' | { encoding: 'binary' }, callback?: (chunk: FsChunk) => void): Promise<FsBinary>;
+	async readFile(path: string, options: FsReadOptions | FsEncoding = {}, callback?: (chunk: FsChunk) => void): Promise<string | FsBinary | FsReadResult> {
 		const encoding = typeof options === 'string' ? options : (options.encoding ?? 'utf8');
-		return this.call('readFile', { path, encoding });
+		if (callback) {
+			const chunkSize = typeof options === 'string' ? 0 : (options.chunkSize ?? 1024 * 1024);
+			// 分块走"隐藏事件"通道：每块带 streamId，JS 侧按 streamId 路由到本次 callback。
+			// 不扩展 Ipc 请求-响应协议；事件订阅只登记一次（Set 去重，见 fsChunkHandler）
+			const streamId = ++this.streamSeq;
+			this.chunkHandlers.set(streamId, callback);
+			this.on('fs-chunk', this.fsChunkHandler);
+			const result = await this.call<FsReadResult>('readFile', { path, encoding, chunkSize, streamId });
+			this.chunkHandlers.delete(streamId);
+			return result;
+		}
+		return this.call<string | FsBinary>('readFile', { path, encoding });
+	}
+
+	/**
+	 * 读文件的一段：从 `start` 偏移读 `size` 字节，返回**单块**内容。
+	 * 适合大文件的随机访问（不必读进全文）。
+	 *
+	 * ```ts
+	 * const head = await fs.readFileChunk('big.bin', 'binary', 0, 256); // 前 256 字节
+	 * ```
+	 */
+	readFileChunk(path: string, options?: FsReadOptions | FsEncoding, start?: number, size?: number): Promise<string>;
+	readFileChunk(path: string, options: 'binary' | { encoding: 'binary' }, start?: number, size?: number): Promise<FsBinary>;
+	async readFileChunk(path: string, options: FsReadOptions | FsEncoding = {}, start = 0, size = 0): Promise<string | FsBinary> {
+		const encoding = typeof options === 'string' ? options : (options.encoding ?? 'utf8');
+		return this.call<string | FsBinary>('readFileChunk', { path, encoding, start, size });
 	}
 
 	/**

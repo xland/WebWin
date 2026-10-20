@@ -65,6 +65,18 @@ struct AsyncResult
 	 * 为 null 表示没有返回值（比如 unlink），resolve(undefined)
 	 */
 	std::function<IJsonValue()> data;
+	/**
+	 * 流式分块下行用：finish 会按序逐个用 `Win::fireEvent(NO_WINDOW, name, payload())` 下发，
+	 * 最后再发最终响应。不走请求-响应协议（不污染它），而是复用既有的事件通道 ——
+	 * 调用方（如 fs 分块读取）在 JS 侧用 `on(name, ...)` 订阅即可逐块收到。
+	 * 为空表示非流式。顺序由 UI 线程串行保证：块事件必然先于最终响应到达页面
+	 */
+	struct StreamChunk
+	{
+		std::wstring name;
+		std::function<JsonObject()> payload;
+	};
+	std::vector<StreamChunk> chunks;
 	/** 走共享内存回传的字节（页面拿到 ArrayBuffer），不进 JSON 信封 */
 	std::vector<uint8_t> buffer;
 	/**

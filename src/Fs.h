@@ -37,8 +37,11 @@ public:
 	static bool handleApi(const std::wstring& method, const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame = nullptr);
 
 private:
-	/** 读文件。encoding='binary' 时字节走共享内存，页面拿到 ArrayBuffer */
+	/** 读文件。encoding='binary' 时字节走共享内存，页面拿到 ArrayBuffer。
+	 *  params.chunkSize>0 时走分块流式：配合 JS 侧 callback 逐块下行（见 Fs.ts） */
 	static bool readFile(const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame);
+	/** 读文件的一段：从 start 偏移读 size 字节，返回单块（encoding 同 readFile） */
+	static bool readFileChunk(const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame);
 	/** 写文件（覆盖）。encoding='base64' 时把 data 当 base64 解成字节再写 */
 	static bool writeFile(const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame);
 	/** 追加写；文件不存在时创建 */

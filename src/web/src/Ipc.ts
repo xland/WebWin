@@ -71,7 +71,10 @@ interface WebViewChannel {
 }
 
 let channel: WebViewChannel | null = null;
-const pending = new Map<number, { resolve: (value: unknown) => void; reject: (reason: unknown) => void }>();
+const pending = new Map<number, {
+	resolve: (value: unknown) => void;
+	reject: (reason: unknown) => void;
+}>();
 const listeners = new Map<string, Set<Handler>>();
 let nextId = 1;
 

@@ -5,6 +5,7 @@
 #include <iterator>
 
 #include "App.h"
+#include "Win.h"
 #include "Async.h"
 #include "Json.h"
 #include "Util.h"
@@ -83,6 +84,11 @@ namespace
 bool Fs::handleApi(const std::wstring& method, const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
 {
 	if (method == L"readFile") return readFile(params, page, result, frame);
+	if (method == L"readFileChunk") return readFileChunk(params, page, result, frame);
+	// fs 域的事件订阅：委托到 NO_WINDOW（与窗口无关，同 app 域的做法）。
+	// 分块读取的"隐藏事件" fs-chunk 就靠它下发到 JS
+	if (method == L"on") { Win::subscribeEvent(Win::NO_WINDOW, Json::getString(params, L"name", L""), page, frame); Json::setOk(result); return true; }
+	if (method == L"off") { Win::unsubscribeEvent(Win::NO_WINDOW, Json::getString(params, L"name", L""), page, frame); Json::setOk(result); return true; }
 	if (method == L"writeFile") return writeFile(params, page, result, frame);
 	if (method == L"appendFile") return appendFile(params, page, result, frame);
 	if (method == L"unlink") return unlink(params, page, result, frame);
@@ -99,7 +105,74 @@ bool Fs::readFile(const JsonObject& params, Page* page, JsonObject& result, ICor
 	if (raw.empty()) { Json::setError(result, L"path 不能为空"); return false; }
 	auto path = resolvePath(raw);
 	auto encoding = Json::getString(params, L"encoding", L"utf8");
+	auto chunkSize = Json::getInt(params, L"chunkSize", 0);
 
+	// 分块流式：chunkSize>0 时读全文件后在 UI 线程逐块下行（配合 JS 侧 callback）。
+	// 块走"隐藏事件"通道（fireEvent 'fs-chunk' 带 streamId），不污染请求-响应协议：
+	// JS 用 fs.on('fs-chunk') 按 streamId 路由到本次的 callback
+	if (chunkSize > 0)
+	{
+		auto streamId = Json::getInt(params, L"streamId", 0);
+		auto started = Async::run(page, result, frame, [path, encoding, chunkSize, streamId] {
+			std::wstring error;
+			auto bytes = readAll(path, error);
+			if (!error.empty()) return AsyncResult::fail(error + L"：" + path.wstring());
+
+			// utf8 切块时把边界对齐到"完整字符之后"，把跨边界的那一个多字节字符
+			// 整个留给下一块，避免块尾巴截出半个字符；base64 / binary 没这问题
+			auto align = [](const std::string& b, size_t off, size_t len) -> size_t {
+				size_t end = off + len;
+				if (end >= b.size()) return len; // 到 EOF 不调整
+				size_t scan = end;
+				while (scan > off) // 往前找到 end 之前最后一个非续字节（完整字符首字节）
+				{
+					unsigned char c = static_cast<unsigned char>(b[scan - 1]);
+					if ((c & 0xC0) != 0x80) break;
+					--scan;
+				}
+				return scan - off; // [scan, end) 是不完整的字符，留给下一块
+			};
+
+			size_t total = bytes.size();
+			size_t cs = static_cast<size_t>(chunkSize);
+			AsyncResult r;
+			for (size_t off = 0; off < total; )
+			{
+				size_t len = (std::min)(cs, total - off);
+				bool isLast = (off + cs >= total);
+				if (encoding == L"utf8" && !isLast) len = align(bytes, off, len);
+				std::vector<uint8_t> chunkBytes(bytes.begin() + off, bytes.begin() + off + len);
+				size_t index = r.chunks.size();
+				// 块走事件通道：finish 会用 fireEvent(NO_WINDOW, 'fs-chunk', ...) 下发。
+				// 回调只在 UI 线程上调（finish 里）：闭包只捕获字节，不在此构造 winrt 对象
+				r.chunks.push_back(AsyncResult::StreamChunk{ L"fs-chunk", [encoding, chunkBytes = std::move(chunkBytes), index, isLast, streamId]() -> JsonObject {
+					JsonObject o{ nullptr };
+					std::string s = (encoding == L"base64" || encoding == L"binary")
+						? Util::toBase64(std::string(chunkBytes.begin(), chunkBytes.end()))
+						: std::string(chunkBytes.begin(), chunkBytes.end()); // utf8 原始字节
+					o.SetNamedValue(L"content", JsonValue::CreateStringValue(Util::utf8ToWide(s)));
+					o.SetNamedValue(L"index", JsonValue::CreateNumberValue(static_cast<double>(index)));
+					o.SetNamedValue(L"isLast", JsonValue::CreateBooleanValue(isLast));
+					o.SetNamedValue(L"streamId", JsonValue::CreateNumberValue(static_cast<double>(streamId)));
+					return o;
+				} });
+				off += len;
+			}
+			// 最终响应带的元数据：页面据此知道总量，不必靠数回调次数
+			size_t totalChunks = r.chunks.size();
+			r.data = [total, totalChunks]() -> IJsonValue {
+				JsonObject o{ nullptr };
+				o.SetNamedValue(L"totalBytes", JsonValue::CreateNumberValue(static_cast<double>(total)));
+				o.SetNamedValue(L"totalChunks", JsonValue::CreateNumberValue(static_cast<double>(totalChunks)));
+				return o;
+			};
+			return r;
+		});
+		if (!started) { Json::setError(result, L"创建文件分块读取任务失败"); return false; }
+		return true;
+	}
+
+	// ---- 原有的一次性读取（chunkSize<=0）----
 	auto started = Async::run(page, result, frame, [path, encoding] {
 		std::wstring error;
 		auto bytes = readAll(path, error);
@@ -128,6 +201,47 @@ bool Fs::readFile(const JsonObject& params, Page* page, JsonObject& result, ICor
 		});
 	});
 	if (!started) { Json::setError(result, L"创建文件读取任务失败"); return false; }
+	return true;
+}
+
+bool Fs::readFileChunk(const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
+{
+	auto raw = Json::getString(params, L"path", L"");
+	if (raw.empty()) { Json::setError(result, L"path 不能为空"); return false; }
+	auto path = resolvePath(raw);
+	auto encoding = Json::getString(params, L"encoding", L"utf8");
+	auto start = Json::getInt(params, L"start", 0);
+	auto size = Json::getInt(params, L"size", 0);
+	if (start < 0) start = 0;
+	if (size <= 0) { Json::setError(result, L"size 必须为正数"); return false; }
+
+	auto started = Async::run(page, result, frame, [path, encoding, start, size] {
+		std::ifstream f(path, std::ios::binary);
+		if (!f) return AsyncResult::fail(L"读不到文件（不存在或没权限）：" + path.wstring());
+		f.seekg(start, std::ios::beg);
+		std::vector<char> buf(static_cast<size_t>(size));
+		f.read(buf.data(), size);
+		std::streamsize got = f.gcount();
+		if (got <= 0) return AsyncResult::ok([]() -> IJsonValue { return JsonValue::CreateStringValue(L""); });
+		std::vector<uint8_t> bytes(buf.begin(), buf.begin() + static_cast<size_t>(got));
+
+		if (encoding == L"binary")
+		{
+			return AsyncResult::binary(std::move(bytes), [got]() {
+				JsonObject data;
+				data.SetNamedValue(L"size", JsonValue::CreateNumberValue(static_cast<double>(got)));
+				return data;
+			});
+		}
+		if (encoding == L"base64")
+			return AsyncResult::ok([text = Util::toBase64(std::string(bytes.begin(), bytes.end()))]() {
+				return JsonValue::CreateStringValue(Util::utf8ToWide(text));
+			});
+		return AsyncResult::ok([text = Util::utf8ToWide(std::string(bytes.begin(), bytes.end()))]() {
+			return JsonValue::CreateStringValue(text);
+		});
+	});
+	if (!started) { Json::setError(result, L"创建文件分段读取任务失败"); return false; }
 	return true;
 }
 

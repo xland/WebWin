@@ -11,6 +11,7 @@
 #include "Env.h"
 #include "Json.h"
 #include "Util.h"
+#include "Win.h"
 
 // 说明见 Async.h 头部的流程图，这里只讲实现细节
 namespace
@@ -74,6 +75,13 @@ namespace
 
 		Json::setOk(p.result);
 		if (r.data) p.result.SetNamedValue(L"data", r.data());
+
+		// 流式分块：逐块用事件下行（调用方在 JS 侧 on 订阅），最后才发最终响应。
+		// 顺序由 UI 线程串行保证：块事件必然先于最终响应到达页面
+		for (auto& c : r.chunks)
+		{
+			Win::fireEvent(Win::NO_WINDOW, c.name, c.payload());
+		}
 
 		// 走共享内存；发不出去要转成 error，不能退化成普通响应 ——
 		// 那样页面拿到的是一个没有 buffer 字段的对象，调用方无从判断。
