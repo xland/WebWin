@@ -33,6 +33,9 @@
 		#titlebar .spacer { flex: 1; }
 		/* 标题栏按钮：贴满整条高度，视觉上像原生那三个 */
 		#titlebar button {
+			display: flex;
+			align-items: center;
+			justify-content: center;
 			height: 36px;
 			width: 44px;
 			margin: 0;
@@ -40,11 +43,24 @@
 			border-radius: 0;
 			background: transparent;
 			color: #eee;
-			font-size: 14px;
 			padding: 0;
 		}
 		#titlebar button:hover { background: #3d3d44; }
 		#titlebar button.danger:hover { background: #c0392b; color: #fff; }
+
+		/* 图标：SVG 自带 fill="#333333"（深色），标题栏是深底，
+		   用 CSS 覆盖成 currentColor 才看得见，悬停变白也跟着走 */
+		#titlebar .icon {
+			width: 12px;
+			height: 12px;
+			display: block;
+		}
+		#titlebar .icon path { fill: currentColor; }
+
+		/* 最大化 / 还原两个图标叠在同一个按钮里，按状态显示其中一个 */
+		#btnMax .restore-icon { display: none; }
+		#btnMax.maximized .maximize-icon { display: none; }
+		#btnMax.maximized .restore-icon { display: block; }
 
 		main {
 			flex: 1;
@@ -76,9 +92,28 @@
 	<div id="titlebar" data-caption>
 		<span id="title">无边框窗口</span>
 		<span class="spacer"></span>
-		<button data-caption="no-drag" onclick="minimize()" title="最小化">─</button>
-		<button data-caption="no-drag" onclick="toggleMax()" id="btnMax" title="最大化 / 还原">☐</button>
-		<button data-caption="no-drag" class="danger" onclick="closeWin()" title="关闭">✕</button>
+		<button data-caption="no-drag" onclick="minimize()" title="最小化">
+			<svg t="1792467534924" class="icon" viewBox="0 0 1024 1024" version="1.1"
+				xmlns="http://www.w3.org/2000/svg" p-id="1817" width="200" height="200">
+				<path d="M44.521739 472.731826h934.956522v93.495652H44.521739z" fill="#333333" p-id="1818"></path>
+			</svg>
+		</button>
+		<button data-caption="no-drag" onclick="toggleMax()" id="btnMax" title="最大化 / 还原">
+			<svg t="1792467514847" class="icon maximize-icon" viewBox="0 0 1024 1024" version="1.1"
+				xmlns="http://www.w3.org/2000/svg" p-id="1667" width="200" height="200">
+				<path d="M73.73913031 73.73913031v876.52173938h876.52173938V73.73913031H73.73913031z m788.86956563 788.86956563H161.39130406V161.39130406h701.21739188v701.21739188z" fill="#333333" p-id="1668"></path>
+			</svg>
+			<svg t="1792467455918" class="icon restore-icon" viewBox="0 0 1024 1024" version="1.1"
+				xmlns="http://www.w3.org/2000/svg" p-id="1373" width="200" height="200">
+				<path d="M977.608348 45.412174v751.304348l-190.19687-0.089044v180.891826H45.412174V235.52H226.170435V45.412174h751.393391zM703.888696 319.042783H128.890435v575.087304H703.888696V319.042783z m190.196869-190.152348H309.648696V235.52h477.762782v477.718261l106.718609 0.044522V128.890435z" fill="#333333" p-id="1374"></path>
+			</svg>
+		</button>
+		<button data-caption="no-drag" class="danger" onclick="closeWin()" title="关闭">
+			<svg t="1792467547130" class="icon" viewBox="0 0 1024 1024" version="1.1"
+				xmlns="http://www.w3.org/2000/svg" p-id="1967" width="200" height="200">
+				<path d="M582.95652219 508.95304344l367.3043475 364.71652219-67.82608688 64.36173843-367.30434844-364.71652125L141.56521719 950.26086969 73.73913031 879.59652219l373.89913032-376.86260906-367.72173844-364.63304344L147.82608687 73.73913031l367.30434751 364.75826063L882.43478281 73.73913031 950.26086969 144.19478281z" fill="#333333" p-id="1968"></path>
+			</svg>
+		</button>
 	</div>
 
 	<main>
@@ -143,8 +178,9 @@
 				const max = await win.isMaximized();
 				document.getElementById('state').textContent =
 					`当前状态：${max ? '已最大化（把手已隐藏）' : '正常（把手可见）'}`;
-				// 按钮文字跟着变，最大化时显示"还原"图标
-				document.getElementById('btnMax').textContent = max ? '❐' : '☐';
+				// 最大化时换成"还原"图标：两个 SVG 都在按钮里，靠 class 切换显示。
+				// 注意别写 textContent —— 那会把按钮里的 SVG 一起清掉
+				document.getElementById('btnMax').classList.toggle('maximized', max);
 			} catch (e) { log(`win.isMaximized() → 失败：${err(e)}`, 'err'); }
 		}
 

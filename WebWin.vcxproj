@@ -111,6 +111,7 @@
     <ClCompile Include="src\Net.cpp" />
     <ClCompile Include="src\Process.cpp" />
     <ClCompile Include="src\Regedit.cpp" />
+    <ClCompile Include="src\Res.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -135,6 +136,7 @@
     <ClInclude Include="src\Net.h" />
     <ClInclude Include="src\Process.h" />
     <ClInclude Include="src\Regedit.h" />
+    <ClInclude Include="src\Res.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\Res.rc" />

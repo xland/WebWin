@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebWin exe 资源 API 演示</title>
+	<!-- 公共样式：所有演示页共用一套盒子 / 按钮 / 输入框，见 style.css -->
+	<link rel="stylesheet" href="style.css">
+	<!-- log() 会把日志写到外壳页面（index.html）右侧那一栏 -->
+	<script src="log.js"></script>
+</head>
+
+<body>
+	<section>
+		<h2>1. 选一个 exe</h2>
+		<button onclick="pickExe()">选择 exe…</button>
+		<div class="note">
+			选完会<b>先复制一份</b>再操作。原因是：exe 正在运行时改不动它自己的资源
+			（Windows 以映像方式映射，写打开会被拒），而副本没在运行，改得动。<br>
+			副本统一写在<b>应用自己的目录</b>里，不往源 exe 所在目录落东西 —— 那些目录
+			常常不可写（Program Files、工具目录），复制会撞「拒绝访问（错误码 5）」，
+			还会把垃圾留在用户的目录里。<br>
+			后面所有按钮操作的都是<b>那个副本</b>，不动你的原文件。
+		</div>
+	</section>
+
+	<section>
+		<h2>2. 版本信息（getInfo）</h2>
+		<button onclick="doVersion()">res.getInfo()</button>
+		<div class="note">
+			读的就是 exe 属性窗口「详细信息」那一栏：<code>fileVersion</code> /
+			<code>productVersion</code>（文本 + 数字数组），
+			以及 <code>strings</code> 里的 CompanyName / FileDescription / ProductName 等。
+		</div>
+	</section>
+
+	<section>
+		<h2>3. 列出资源（list）</h2>
+		<button onclick="doList()">res.list()</button>
+		<div class="note">
+			不传 type 列全部类型。我们的 exe 里就有现成的：
+			<code>webwin.js</code>（整个 SDK）和 <code>default.html</code>，都是 RCDATA 类型。
+		</div>
+	</section>
+
+	<section>
+		<h2>4. 增 / 查 / 存 / 删</h2>
+		资源名 <input id="resName" value="demo.txt" size="12">
+		<button onclick="doAdd()">addText</button>
+		<button onclick="doGet()">get</button>
+		<button onclick="doSave()">saveToFile</button>
+		<button onclick="doRemove()">remove</button>
+		<div class="note">
+			按顺序点一遍最直观：加进去 → 读出来 → 导出成文件 → 删掉。
+			删完再 <code>list</code> 一次，那条就没了。
+		</div>
+	</section>
+
+	<section>
+		<h2>5. 自证：改不了正在运行的 exe</h2>
+		<button onclick="doSelf()">试着改原文件</button>
+		<div class="note">
+			对第 1 步里选的<b>原文件</b>直接 <code>addText</code> —— 会 reject，
+			报的是「不能修改正在运行的这个 exe 自身…」这种能看懂的话，
+			而不是一个天书般的 sharing violation。<br>
+			（原文件要是没在运行，这条就不会失败 —— 那时能改成功，也是对的。）
+		</div>
+	</section>
+
+	<script>
+		// ---------- 目标：原文件 + 它的副本 ----------
+		// 只读操作用原文件就够；写操作必须打在副本上（原文件可能正在运行，也可能所在
+		// 目录只读）。两者分开判断，复制失败时 getInfo / list 照样能用
+		let originExe = '';
+		let target = '';
+
+		function needOrigin() {
+			if (originExe) return true;
+			log('先在第 1 步里选一个 exe', 'err');
+			return false;
+		}
+
+		function needTarget() {
+			if (target) return true;
+			log('副本还没准备好（复制失败了吧？）—— 写操作必须打在副本上', 'err');
+			return false;
+		}
+
+		async function pickExe() {
+			log('── dialog.openPath()');
+			let r;
+			try {
+				r = await dialog.openPath({});
+			} catch (e) { log(`  失败：${e && e.message ? e.message : e}`, 'err'); return; }
+			if (r.cancel || !r.data.length) { log('  已取消', 'err'); return; }
+
+			originExe = r.data[0];
+			log(`  选中：${originExe}`);
+
+			// 复制一份。原文件可能正在运行（改不动），副本不会。
+			// 副本落在应用自己的目录（package.json 所在目录），不用源 exe 所在目录：
+			// 后者可能是 Program Files / 只读工具盘，写不进去（错误码 5）
+			target = path.resolve('res-demo-copy.exe');
+			try {
+				await fs.copyFile(originExe, target);
+				log(`  副本：${target}（后面都改它）`, 'ok');
+			} catch (e) {
+				log(`  复制失败：${e && e.message ? e.message : e}`, 'err');
+				target = '';
+			}
+		}
+
+		// ---------- 版本信息 ----------
+		async function doVersion() {
+			if (!needOrigin()) return;
+			log('── res.getInfo()');
+			try {
+				const v = await res.getInfo(originExe);
+				log(`  fileVersion    ${v.fileVersion}`, 'ok');
+				log(`  productVersion ${v.productVersion}`, 'ok');
+				log(`  raw            [${v.fileVersionRaw}] / [${v.productVersionRaw}]`);
+				if (v.strings) {
+					for (const [k, val] of Object.entries(v.strings)) log(`  ${k} = ${val}`);
+				} else log('  （没有 StringFileInfo 字符串表）');
+			} catch (e) { log(`  失败：${e && e.message ? e.message : e}`, 'err'); }
+		}
+
+		// ---------- 列资源 ----------
+		async function doList() {
+			if (!needOrigin()) return;
+			log('── res.list()');
+			try {
+				const r = await res.list(originExe);
+				log(`  ${r.count} 条`, 'ok');
+				for (const it of r.items) log(`  ${it.type}\t${it.name}\t${it.size} 字节`);
+			} catch (e) { log(`  失败：${e && e.message ? e.message : e}`, 'err'); }
+		}
+
+		// ---------- 增 / 查 / 存 / 删 ----------
+		const name = () => document.getElementById('resName').value.trim() || 'demo.txt';
+
+		async function doAdd() {
+			if (!needTarget()) return;
+			log(`── res.addText(${name()})`);
+			try {
+				await res.addText(target, name(), `hello from webwin @ ${new Date().toISOString()}`);
+				log('  已写入', 'ok');
+			} catch (e) { log(`  失败：${e && e.message ? e.message : e}`, 'err'); }
+		}
+
+		async function doGet() {
+			if (!needTarget()) return;
+			log(`── res.get(${name()})`);
+			try {
+				const text = await res.get(target, name());
+				log(`  ${text}`, 'ok');
+			} catch (e) { log(`  失败：${e && e.message ? e.message : e}`, 'err'); }
+		}
+
+		async function doSave() {
+			if (!needTarget()) return;
+			const dest = `${name()}.out`;
+			log(`── res.saveToFile(${name()} → ${dest})`);
+			try {
+				await res.saveToFile(target, name(), dest);
+				log('  已导出', 'ok');
+			} catch (e) { log(`  失败：${e && e.message ? e.message : e}`, 'err'); }
+		}
+
+		async function doRemove() {
+			if (!needTarget()) return;
+			log(`── res.remove(${name()})`);
+			try {
+				await res.remove(target, name());
+				log('  已删除', 'ok');
+			} catch (e) { log(`  失败：${e && e.message ? e.message : e}`, 'err'); }
+		}
+
+		// ---------- 自证 ----------
+		async function doSelf() {
+			if (!originExe) { log('先在第 1 步里选一个 exe', 'err'); return; }
+			log(`── 对原文件 addText（预期失败）`);
+			try {
+				await res.addText(originExe, 'self-test.txt', 'x');
+				log('  写成功了 —— 说明那个 exe 没在运行，所以改得动。这也是对的。', 'ok');
+			} catch (e) {
+				log(`  ${e && e.message ? e.message : e}`, 'err');
+			}
+		}
+
+		// ---------- 启动 ----------
+		window.addEventListener('load', () => {
+			log(`SDK 就绪：res 对象${typeof res === 'undefined' ? '缺失' : '已注入'}`);
+			if (typeof res === 'undefined') log('  （说明用的是旧 exe：res 域要重新编译才有）', 'err');
+		});
+	</script>
+</body>
+
+</html>

@@ -20,6 +20,7 @@ QuickWin，一个类似 TAURI 的框架，提供的能力比 TAURI 要多，仅�
 | [路径 API](doc/path.md)         | `path`：路径拼接、拆分、校验          |
 | [HTTP API](doc/http.md)         | `Http`：发 HTTP/HTTPS 请求            |
 | [文件 API](doc/fs.md)           | `fs`：文件读写、删除、复制、信息      |
+| [exe 资源 API](doc/res.md)      | `res`：exe 资源读 / 写 / 删与版本信息 |
 | [子进程 API](doc/process.md)    | `Process`：启动子进程、收输出与退出码 |
 | [注册表 API](doc/regedit.md)    | `regedit`：注册表读 / 写 / 删键与枚举 |
 | [网络 API](doc/net.md)          | `Net`：网卡信息（名字 / MAC / IP）    |

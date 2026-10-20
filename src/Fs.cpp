@@ -194,7 +194,10 @@ bool Fs::copyFile(const JsonObject& params, Page* page, JsonObject& result, ICor
 	auto started = Async::run(page, result, frame, [src, dest] {
 		// 第三参数 FALSE = 目标已存在就覆盖（Node 的 copyFile 默认也是覆盖）
 		if (CopyFileW(src.c_str(), dest.c_str(), FALSE)) return AsyncResult::ok(nullptr);
-		return AsyncResult::fail(L"复制失败：" + Util::winErr(GetLastError()) + L"：" + src.wstring());
+		// 两端都报出来。只报 src 的话，目标目录没写权限这种常见情况
+		// 看起来就像"源文件读不了"，排查方向直接跑偏
+		return AsyncResult::fail(L"复制失败：" + Util::winErr(GetLastError())
+			+ L"：" + src.wstring() + L" → " + dest.wstring());
 	});
 	if (!started) { Json::setError(result, L"创建文件复制任务失败"); return false; }
 	return true;

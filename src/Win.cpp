@@ -36,6 +36,11 @@ namespace {
 	// 同一个窗口的同一事件可以被多个文档同时订阅（A 页面、C 页面、以及某个 iframe）
 	std::map<std::pair<int, std::wstring>, std::set<EventSub>> eventSubs;
 
+	// 弹系统菜单的自定义消息。不能在 WebView2 的回调里直接弹：
+	// doc/dialog.md 记着重入风险（Runtime 会判重入并 __debugbreak()）。
+	// 发这条消息给自己，让 TrackPopupMenu 的模态循环跑在窗口过程的正常流程里
+	constexpr UINT WM_WW_SHOWSYSMENU = WM_APP + 1;
+
 	void removeWin(Win* win)
 	{
 		std::erase_if(winDic, [win](const std::unique_ptr<Win>& item) { return item.get() == win; });
@@ -179,8 +184,15 @@ void Win::createNativeWindow()
 		// 无边框窗口：非客户区在 WM_NCCALCSIZE 中裁掉；
 		// 阴影由 applyDwmAttributes() 里的 DWM 调用负责。
 		// WS_SYSMENU 是**故意留着的**：它本身不画标题栏（那要 WS_CAPTION），
-		// 但窗口得有系统菜单，自定义标题栏上右键才弹得出原生那个菜单（见 startDrag 的注释）
+		// 但窗口得有系统菜单，自定义标题栏上右键才弹得出原生那个菜单（见 showSystemMenu）
 		style |= WS_POPUP | WS_SYSMENU;
+		// 下面三个跟有边框分支一一对应。它们在没有 WS_CAPTION 时一个像素都不画，
+		// 但系统靠它们判断窗口"能干什么"，少了就只是少功能、不出错，容易漏：
+		//   - WS_MINIMIZEBOX：任务栏图标点击（前台时最小化 / 最小化时还原）认这个
+		//   - WS_MAXIMIZEBOX：能否被 snap、能否最大化；系统菜单"最大化"项的真实依据
+		//   - WS_THICKFRAME：DefWindowProc 的缩放循环要求窗口在样式上可缩放
+		if (minimizable) style |= WS_MINIMIZEBOX;
+		if (maximizable) style |= WS_MAXIMIZEBOX;
 		// WS_THICKFRAME 只为"能被拖拽改变大小"服务：DefWindowProc 的**缩放**循环
 		// 要求窗口在样式上可缩放，纯 WS_POPUP 上发 WM_NCLBUTTONDOWN / HTLEFT 是拖不动的（实测）。
 		// 移动没这限制（HTCAPTION 在任何窗口上都能进移动循环），所以只有 resize 撞这堵墙。
@@ -412,13 +424,13 @@ void Win::handleApi(const std::wstring& method, const JsonObject& params, int wi
 	}
 	else if (method == L"showSystemMenu")
 	{
-		// 系统菜单是 DefWindowProc 在**右键抬起**时弹的（内部转 WM_SYSCOMMAND / SC_MOUSEMENU），
-		// 且拿 lParam 当弹出位置 —— 不传坐标会弹到屏幕左上角，所以按下抬起都带上坐标
 		POINT pt{};
 		GetCursorPos(&pt);
 		ReleaseCapture();
-		PostMessage(hwnd, WM_NCRBUTTONDOWN, HTCAPTION, MAKELPARAM(pt.x, pt.y));
-		PostMessage(hwnd, WM_NCRBUTTONUP, HTCAPTION, MAKELPARAM(pt.x, pt.y));
+		// 真正的弹菜单在 winProc 里做（见 WM_WW_SHOWSYSMENU）。
+		// 这里只把坐标递过去 —— 留在这里直接弹，TrackPopupMenu 的模态循环
+		// 就是跑在 WebView2 的回调里了，会被判重入
+		PostMessage(hwnd, WM_WW_SHOWSYSMENU, 0, MAKELPARAM(pt.x, pt.y));
 	}
 	else if (method == L"isMaximized")
 	{
@@ -526,6 +538,32 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		if ((wParam & 0xFFF0) == SC_MINIMIZE) winObj->resetHoverState();
 		break;
 	}
+	case WM_WW_SHOWSYSMENU:
+	{
+		// 弹系统菜单。两条前提：宿主窗口得在前台（否则菜单弹出来点不动），
+		// 以及窗口得有 WS_SYSMENU（无边框窗口在 createNativeWindow 里补过）
+		// 低位 / 高位各按 short 取，才能正确符号扩展（多显示器下坐标可能是负的）
+		const POINT pt{ static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)) };
+		SetForegroundWindow(hwnd);
+		HMENU menu = GetSystemMenu(hwnd, FALSE);
+		if (menu == nullptr) return 0;
+		// 取出来的系统菜单是"刚创建"的状态，得按当前窗口状态把各项点亮 / 置灰，
+		// 否则最大化了"最大化"还是亮的、"还原"还是灰的
+		const bool zoomed = IsZoomed(hwnd) != FALSE;
+		EnableMenuItem(menu, SC_RESTORE,  (zoomed ? MF_ENABLED : MF_GRAYED) | MF_BYCOMMAND);
+		EnableMenuItem(menu, SC_MOVE,     (zoomed ? MF_GRAYED : MF_ENABLED) | MF_BYCOMMAND);
+		EnableMenuItem(menu, SC_SIZE,     (!zoomed && winObj->resizable ? MF_ENABLED : MF_GRAYED) | MF_BYCOMMAND);
+		EnableMenuItem(menu, SC_MINIMIZE, (winObj->minimizable ? MF_ENABLED : MF_GRAYED) | MF_BYCOMMAND);
+		EnableMenuItem(menu, SC_MAXIMIZE, (!zoomed && winObj->maximizable ? MF_ENABLED : MF_GRAYED) | MF_BYCOMMAND);
+		EnableMenuItem(menu, SC_CLOSE,    MF_ENABLED | MF_BYCOMMAND);
+		// TPM_RETURNCMD：直接拿回选中的 SC_*，不用再靠菜单发通知消息；
+		// TPM_NONOTIFY：不让菜单自己发 WM_SYSCOMMAND，改由我们统一发
+		const int cmd = TrackPopupMenu(menu,
+			TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+			pt.x, pt.y, 0, hwnd, nullptr);
+		if (cmd != 0) PostMessage(hwnd, WM_SYSCOMMAND, cmd, 0);
+		return 0;
+	}
 	case WM_GETMINMAXINFO:
 	{
 		// 先让 DefWindowProc 把这套约束填成系统的默认值（最大跟踪尺寸、最大化尺寸 / 位置）。
@@ -534,6 +572,24 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		// 最小值有、最大值没有，就是窗口疯狂抖动的来源
 		DefWindowProc(hwnd, msg, wParam, lParam);
 		auto mmi = reinterpret_cast<MINMAXINFO*>(lParam);
+		// 无边框窗口的最大化尺寸必须钉成**工作区**，不能用 DefWindowProc 给的默认值。
+		// WS_POPUP 没有 WS_CAPTION，系统默认按整块屏幕算（还会再外扩一圈边框），
+		// 于是最大化会盖住任务栏，而且窗口顶部被顶到屏幕外 —— 标题栏就少了一截。
+		// 我们又在 WM_NCCALCSIZE 里让客户区等于整个窗口矩形，
+		// 所以把窗口矩形钉成工作区，客户区就正好是工作区，两件事一起对。
+		// 按窗口所在的那个显示器取（多显示器下任务栏位置可能不同）
+		if (!winObj->frame)
+		{
+			MONITORINFO mi{};
+			mi.cbSize = sizeof(mi);
+			if (GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi))
+			{
+				mmi->ptMaxSize.x = mi.rcWork.right - mi.rcWork.left;
+				mmi->ptMaxSize.y = mi.rcWork.bottom - mi.rcWork.top;
+				mmi->ptMaxPosition.x = mi.rcWork.left;
+				mmi->ptMaxPosition.y = mi.rcWork.top;
+			}
+		}
 		if (winObj->minWidth > 0) mmi->ptMinTrackSize.x = winObj->minWidth;
 		if (winObj->minHeight > 0) mmi->ptMinTrackSize.y = winObj->minHeight;
 		if (winObj->maxWidth > 0) mmi->ptMaxTrackSize.x = winObj->maxWidth;

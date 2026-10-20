@@ -15,6 +15,7 @@
 #include "Os.h"
 #include "Process.h"
 #include "Regedit.h"
+#include "Res.h"
 #include "Win.h"
 #include "Page.h"
 #include "Json.h"
@@ -283,6 +284,8 @@ void Page::handleMessage(const wchar_t* json, ICoreWebView2Frame2* frame)
     else if (type == L"http") sent = Http::handleApi(method, params, this, result, frame);
     // fs 的文件操作同样跑在后台线程（网络盘 / 大文件会卡住 UI 线程），同 http 一条路
     else if (type == L"fs") sent = Fs::handleApi(method, params, this, result, frame);
+    // res 域读写 exe 资源。写资源要重写整个 PE 文件，同样不能占着 UI 线程
+    else if (type == L"res") sent = Res::handleApi(method, params, this, result, frame);
         else if (type == L"display") sent = Display::handleApi(method, params, this, result, frame);
         // 弹框不能当场执行（回调里开模态循环会被 Runtime 判重入），
         // 所以 handleApi 返回"是否已自行发回响应"，由它决定要不要再发一次信封

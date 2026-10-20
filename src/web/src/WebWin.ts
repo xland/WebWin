@@ -13,6 +13,7 @@
  *   Process —— 静态方法 Process.spawn() 启动子进程，返回进程对象
  *   Net —— 只有静态方法的类型（Net.getAddress() 取本机网卡地址）
  *   regedit —— 注册表单例（get / set / deleteKey / listKeys / listValues）
+ *   res —— exe 资源读写 + exe 版本信息（全部异步；写资源改不了正在运行的 exe 自身）
  */
 
 import { App } from './App';
@@ -28,6 +29,7 @@ import { Os } from './Os';
 import { Path } from './Path';
 import { Process } from './Process';
 import { Regedit } from './Regedit';
+import { Res } from './Res';
 import { Tray } from './Tray';
 import { Win } from './Win';
 
@@ -63,6 +65,8 @@ declare global {
 		Process: typeof Process;
 		/** 注册表单例（全局，与窗口无关） */
 		regedit: Regedit;
+		/** exe 资源读写与版本信息（全局单例）。写资源改不了正在运行的 exe 自身 */
+		res: Res;
 	}
 }
 
@@ -86,6 +90,8 @@ if (config) {
 	// 事件按子进程 id 送回**发起 spawn 的那个文档**，所以这里也不必接
 	window.regedit = new Regedit(); // 注册表没有"当前键"的概念：所有操作都带完整路径
 	window.Net = Net; // 网卡是机器级的、不是"某个子对象"的，所以只有静态方法
+	// exe 资源与窗口无关，读写目标由每次调用自己带 exePath 指定
+	window.res = new Res();
 	// 无边框 + 可缩放：自动铺 8 个 resize 把手。页面想自己来的话，
 	// 在自己的脚本里（DOM ready 之前）调一次 win.removeResizeEdges() 即可阻止
 	window.win.bindFramelessChrome(config.frame === false && config.resizable === true);

@@ -164,7 +164,7 @@ export class Win extends Ipc {
 	/** 造一个把手：只用来接 mousedown，本身完全透明 */
 	private createEdgeEl(edge: ResizeEdge): HTMLElement {
 		const el = document.createElement('div');
-		el.dataset.webwinResize = edge; // 便于在 DevTools 里认出它们
+		el.dataset.resize = edge; // 便于在 DevTools 里认出它们
 		const s = el.style;
 		s.position = 'fixed';
 		s.zIndex = '2147483647'; // 顶层：不被页面任何元素盖住
@@ -223,19 +223,25 @@ export class Win extends Ipc {
 
 		document.addEventListener('mousedown', (ev) => {
 			if (!onCaption(ev)) return;
-			if (ev.button === 2) { void this.showSystemMenu(); return; }
-			if (ev.button !== 0) return;
+			if (ev.button !== 0) return; // 右键走下面的 contextmenu
 			ev.preventDefault(); // 拖的时候别选中文字
 			// detail === 2 说明这是双击的第二下：直接走最大化 / 还原。
 			// 不能在这里先起拖 —— 第一下已经进了系统的移动循环，第二下的消息到不了页面
 			if (ev.detail === 2) { void this.toggleMaximize(); return; }
-			// 最大化时拖动要"先还原再跟手"，这一步在 C++ 的 startDrag 里做
-			// （见 Win.cpp 的 restoreUnderCursor）—— 放 JS 里多一次往返，还容易摆错位置
+			// 最大化时"按一下不动、真拖起来才还原"是系统原生行为，这里什么都不用做
 			void this.startDrag();
 		});
-		// 让位给系统菜单：否则浏览器的右键菜单会跟它一起冒出来
+		// 右键 = 系统菜单。放在 contextmenu 而不是 mousedown 的 button === 2 分支里：
+		// 到这一步右键那一整套已经走完，鼠标状态干净，菜单才不会被挤掉。
+		// 同时必须 preventDefault，否则浏览器的右键菜单会跟它一起冒出来。
+		// 再延后一拍：让本轮鼠标消息（右键按下 / 抬起）彻底走完再弹，
+		// 否则菜单刚弹出来就可能被随后的消息取消掉
 		document.addEventListener('contextmenu', (ev) => {
-			if (onCaption(ev)) ev.preventDefault();
+			if (!onCaption(ev)) return;
+			ev.preventDefault();
+			setTimeout(() => {
+				this.showSystemMenu().catch((e) => console.error('showSystemMenu 失败：', e));
+			}, 0);
 		});
 	}
 

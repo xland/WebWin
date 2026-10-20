@@ -95,6 +95,16 @@ await win.removeResizeEdges();                 // 拆掉
 - 用事件委托实现：页面后来动态插入的标题栏也生效，不用重新调用任何东西
 - 只在**顶级页面**里接（iframe 不参与）
 
+#### 最大化占的是工作区，不是整屏
+
+无边框窗口是 `WS_POPUP`，没有 `WS_CAPTION`，`DefWindowProc` 给 `WM_GETMINMAXINFO`
+的默认最大化尺寸按**整块屏幕**算，还会再外扩一圈边框 —— 直接表现就是盖住任务栏、
+且窗口顶部被顶到屏幕外（标题栏少一截）。
+
+所以 `WM_GETMINMAXINFO` 里对无边框窗口把 `ptMaxSize` / `ptMaxPosition`
+钉成窗口所在显示器的**工作区**（`MONITORINFO::rcWork`）。配合上面
+`WM_NCCALCSIZE` 那条（客户区 = 窗口矩形），最大化后客户区正好等于工作区，不压任务栏。
+
 #### 想自己做把手 / 标题栏
 
 上面两个都是基于这两个方法，开发者可以直接用：

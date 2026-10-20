@@ -47,7 +47,6 @@
         font: inherit;
         font-size: 13px;
         padding: 8px 12px;
-        margin: 0 0 2px;
         border: 0;
         border-radius: 0;
         background: transparent;
@@ -218,6 +217,7 @@
       <button onclick="openPage('process.html', this)">进程</button>
       <button onclick="openPage('regedit.html', this)">注册表</button>
       <button onclick="openPage('net.html', this)">网络</button>
+      <button onclick="openPage('res.html', this)">资源</button>
     </div>
 
     <!-- 中栏：演示页 -->
@@ -245,8 +245,7 @@
 
       // 右栏的宽度上下限：再窄就看不清日志了，再宽会把中栏挤没
       const RIGHT_MIN = 220;
-      const rightMax = () =>
-        Math.max(RIGHT_MIN, window.innerWidth - 480); // 给中栏至少留 480
+      const rightMax = () => Math.max(RIGHT_MIN, window.innerWidth - 480); // 给中栏至少留 480
 
       let dragStartX = 0;
       let dragStartWidth = 0;
