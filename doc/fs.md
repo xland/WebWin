@@ -106,10 +106,10 @@ await fs.writeFile('config.json', JSON.stringify(cfg), { encoding: 'utf8' });
 **不会自动建父目录**（Node 的 `writeFile` 也不建）。静默建目录会把拼错的路径
 变成一堆垃圾目录，所以目录不存在时直接报错。
 
-## 返回：`FsStats`
+## stat()
 
-`stat()` 给的是**纯数据**，不像 Node 的 `Stats` 那样带 `isFile()` 方法
-—— 那些方法过不了消息通道。
+`fs.stat(path)` 取文件信息（大小、类型、时间等），返回**纯数据** `FsStats`，
+不像 Node 的 `Stats` 那样带 `isFile()` 方法 —— 那些方法过不了消息通道。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |

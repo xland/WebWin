@@ -35,7 +35,9 @@ WebWin 的所有配置写在 `package.json` 里，集中在顶层对象的 `"web
       "title": "我的应用",
       "webview": {
         "path": ".",
-        "allowWindowOpen": true
+        "allowWindowOpen": true,
+        "allowRemoteSdk": false,
+        "defaultJsDialog": false
       }
     }
   }
