@@ -17,7 +17,8 @@ const text = await fs.readFile('notes.txt');
 
 | 方法 | 返回 | 说明 |
 | --- | --- | --- |
-| `fs.readFile(path, options?)` | `Promise<string>` / `Promise<FsBinary>` | 读整个文件 |
+| `fs.readFile(path, options?)` | `Promise<string>` / `Promise<FsBinary>` | 读整个文件（支持分块流式，见下） |
+| `fs.readFileChunk(path, options?, start?, size?)` | `Promise<string>` / `Promise<FsBinary>` | 读一段（随机访问） |
 | `fs.writeFile(path, data, options?)` | `Promise<void>` | 写文件（覆盖） |
 | `fs.appendFile(path, data, options?)` | `Promise<void>` | 追加到末尾 |
 | `fs.unlink(path)` | `Promise<void>` | 删文件 |
@@ -51,6 +52,47 @@ bin.release();                                          // 用完必须还
 `binary` 走共享内存，不进 JSON，所以没有 base64 那 1/3 膨胀。代价是
 **用完必须 `release()`** —— 不调会一直占着共享内存。`buffer` 是**只读**的，
 往里写会让渲染进程崩。
+
+## 分块读取（流式）
+
+大文件不必一次性读进内存：`readFile` 传入 `callback` 就进入分块模式，**每读一块触发一次
+回调**，适合边读边处理（比如边读边上传、边解析）。`chunkSize` 控制块大小（字节），默认 1MB。
+
+```ts
+// 分块：每 1MB 触发一次回调
+await fs.readFile('big.zip', { encoding: 'base64', chunkSize: 1024 * 1024 }, (c) => {
+  console.log('第', c.index, '块，是否最后', c.isLast, '内容长', c.data.length);
+});
+```
+
+`callback` 收到的是 `FsChunk = { data: string; index: number; isLast: boolean }`：
+
+- `data` 按 `encoding` 给（`utf8` 文本 / `base64` 字节），与一次性读取一致；
+- `index` 从 0 起；`isLast` 标最后一块。`readFile` 整体完成后 resolve 的不再是文件内容，
+  而是 `{ totalBytes, totalChunks }`（`FsReadResult`）。
+
+几个要点：
+
+- **JS 端是真正增量的**：块内容逐块交给 callback，不会一次性塞进内存。
+- **utf8 切块做了边界对齐**：若块尾巴卡在某个多字节字符中间，会把那个字符整体留到下一块，
+  避免乱码；`base64` 不受影响。
+- **二进制分块降级为 base64**：分块走的是普通消息通道，拿不到 `binary` 的 `ArrayBuffer`，
+  所以 `encoding: 'binary' + callback` 时 `data` 是 base64 串；要真正的 `ArrayBuffer` 用
+  一次性 `fs.readFile(path, 'binary')` 或下面的 `readFileChunk`。
+
+> 分块走的是 `fs` 内部的隐藏事件（`fs.on('fs-chunk')` 由 `readFile` 自动订阅、按 `streamId`
+> 路由），**没有改动 Ipc 的请求-响应协议**——这是刻意让 `fs` 自包含、不动核心通道。
+
+## 读一段：随机访问
+
+`readFileChunk` 从 `start` 偏移读 `size` 字节，返回**单块**内容，适合大文件的随机访问
+（不必读进全文）。`start` / `size` 按 32 位整数（≤2GB）。
+
+```ts
+const head = await fs.readFileChunk('big.bin', 'binary', 0, 256); // 前 256 字节
+head.release();
+const tail = await fs.readFileChunk('big.bin', 'utf8', 1024, 512); // 中段 512 字节当文本
+```
 
 ## 写文件
 
@@ -131,7 +173,7 @@ await fs.readFile('C:\\Temp\\a.json');       // 绝对路径，原样用
 都是"这次没做"，不是 bug：
 
 - **只管文件**，没有 mkdir / readdir / rmdir / rm
-- **没有流式读写**：`readFile` 一次读全部、`writeFile` 一次写全部
+- **没有流式写入**：`writeFile` 一次写全部（读取侧已支持分块流式，见上文）
 - **没有打开 / 关闭句柄**（没有 `FileHandle`、没有 `open()`），也就没有随机读写、没有文件锁
 - **没有 `watch()`**：文件变化监听待做
 - **`mode` 和 `access` 的权限检查是近似的**，不查 ACL（见上文）
@@ -141,7 +183,7 @@ await fs.readFile('C:\\Temp\\a.json');       // 绝对路径，原样用
 ## 尚未支持
 
 - 目录操作：创建 / 遍历 / 删除（`arch/01-api.md` 第 12 项）
-- 流式读写、文件句柄（`open()` / `FileHandle`）、随机读写
+- 流式写入、文件句柄（`open()` / `FileHandle`）、随机读写（读取侧靠 `readFileChunk`，写入侧尚无）
 - 文件变化监听（`watch()`）
 - 真实 ACL 权限检查
 - 符号链接的创建与解析（现在只能靠 `stat` 认出它是链接）
