@@ -21,7 +21,13 @@ export interface SpawnOptions {
 	inheritEnv?: boolean;
 }
 
-/** `stdout` / `stderr` 事件的载荷 */
+/**
+ * `stdout` / `stderr` 事件的载荷。
+ *
+ * 注意：`stdout` 和 `stderr` 是**两条独立的流**，各自推各自的事件 ——
+ * 用 `proc.on('stdout', ...)` 收正常输出，用 `proc.on('stderr', ...)` 收错误输出，
+ * 两者不会混在一起（C++ 早已分管道下行，这里只是把类型与文档显式化）
+ */
 export interface ProcessOutput {
 	/**
 	 * 这一段输出。按 UTF-8 解码；解不动时退回系统 ANSI 代码页
@@ -48,6 +54,7 @@ export interface ProcessExit {
  * ```ts
  * const proc = await Process.spawn('cmd.exe', ['/c', 'echo hello']);
  * proc.on('stdout', (p) => log(p.text));
+ * proc.on('stderr', (p) => log('err', p.text)); // 错误输出是独立流，不会混进 stdout
  * proc.on('exit',   (p) => log(`退出码 ${p.code}`));
  * ```
  *
@@ -58,6 +65,7 @@ export interface ProcessExit {
  * - 事件只推给**发起 spawn 的那个页面**；同时开着好几个子进程时各收各的
  *
  * 除了收输出，还能**往 stdin 喂输入**（`write` / `closeStdin`）和**主动终止**（`kill`）。
+ * 输出分 `stdout` / `stderr` 两条独立流（各自推事件、互不混），分别用 `proc.on('stdout' | 'stderr', ...)` 订阅。
  *
  * 生命周期：页面被销毁时（切走 / 关窗口），它启动的、没标 `detached` 的
  * 子进程会被杀掉 —— 谁启动谁负责，不留孤儿进程
@@ -109,6 +117,12 @@ export class Process extends Ipc {
 	 * 子进程一建好就开始推了，订阅与否是页面自己的事（没人听就丢掉）。
 	 * 所以这是实例自己的订阅表，不是 Ipc 那张"窗口 + 事件名"的全局表
 	 */
+	/** 订阅 stdout / stderr 输出事件，载荷为 `ProcessOutput`（带 `text`）。stdout 与 stderr 是两条独立流，分别订阅 */
+	on(name: 'stdout' | 'stderr', handler: Handler<ProcessOutput>): () => void;
+	/** 订阅 exit 事件，载荷为 `ProcessExit`（带 `code` / `killed`） */
+	on(name: 'exit', handler: Handler<ProcessExit>): () => void;
+	/** 订阅其它（自定义）事件，载荷为 unknown */
+	on<T = unknown>(name: string, handler: Handler<T>): () => void;
 	on<T = unknown>(name: string, handler: Handler<T>): () => void {
 		let set = this.handlers.get(name);
 		if (!set) {
