@@ -18,6 +18,7 @@
 #include "Json.h"
 #include "Util.h"
 #include "Win.h"
+#include <shellapi.h> // CommandLineToArgvW / LocalFree：须在 Windows.h（经上面头文件引入）之后
 
 namespace
 {
@@ -377,6 +378,24 @@ void Process::kill(const JsonObject& params, JsonObject& result)
 	Json::setOk(result);
 }
 
+void Process::getArg(JsonObject& result)
+{
+	// 当前进程的命令行参数，用 Windows 自己的解析器（正确还原引号 / 转义），
+	// 与 App::requestSecondInstanceFromFirst 同款取法
+	int argc = 0;
+	auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+	if (!argv)
+	{
+		Json::setError(result, L"process.getArgFailed", L"无法解析命令行：" + Util::winErr(GetLastError()));
+		return;
+	}
+	JsonArray arr;
+	for (int i = 0; i < argc; ++i) arr.Append(JsonValue::CreateStringValue(argv[i]));
+	LocalFree(argv);
+	Json::setOk(result);
+	result.SetNamedValue(L"data", arr);
+}
+
 void Process::handleApi(const std::wstring& method, const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
 {
 	// 事件不在这里订阅 —— C++ 建进程时就替发起方订好了，见 spawn 里的说明
@@ -384,6 +403,7 @@ void Process::handleApi(const std::wstring& method, const JsonObject& params, Pa
 	else if (method == L"write") write(params, result);
 	else if (method == L"closeStdin") closeStdin(params, result);
 	else if (method == L"kill") kill(params, result);
+	else if (method == L"getArg") getArg(result);
 	else Json::setError(result, L"core.unknownMethod", L"unknown method: " + method);
 }
 

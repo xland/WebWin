@@ -31,6 +31,9 @@ public:
 	static void unsubscribeFrame(Page* page, ICoreWebView2Frame2* frame);
 	// 把窗口事件推给所有订阅者（可能跨页面：B 窗口的事件要送到 A 页面）
 	static void fireEvent(int winId, const std::wstring& name, const JsonObject& payload);
+	// 给每个窗口投递 WM_CLOSE（走和 win.close() 相同的关闭路径），返回关闭的窗口数；
+	// app.quit 据此判断"没有窗口可关"时直接进 will-quit
+	static int closeAll();
 	// 处理 type=win 域的消息：按 method 分发到本域的具体动作。
 	// frame 是发消息的文档（iframe 或空=顶级文档），用于把结果送回原处
 	static void handleApi(const std::wstring& method, const JsonObject& params, int winId, Page* page, JsonObject& result, ICoreWebView2Frame2* frame = nullptr);

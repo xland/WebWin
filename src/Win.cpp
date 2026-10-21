@@ -325,6 +325,19 @@ void Win::unsubscribeFrame(Page* page, ICoreWebView2Frame2* frame)
 	}
 }
 
+int Win::closeAll()
+{
+	// 给每个窗口投递 WM_CLOSE：走和 win.close() 一样的关闭路径（最终 DestroyWindow → WM_DESTROY）。
+	// 不在这里直接销毁：关窗是异步的，窗口会在各自的 WM_DESTROY 里把自己从 winDic 摘掉，
+	// 等最后一个摘掉后 App 才会发 will-quit。返回关闭的窗口数（0 表示当前没有窗口）
+	int n = 0;
+	for (auto& win : winDic)
+	{
+		if (win->hwnd) { PostMessage(win->hwnd, WM_CLOSE, 0, 0); ++n; }
+	}
+	return n;
+}
+
 void Win::fireEvent(int winId, const std::wstring& name, const JsonObject& payload)
 {
 	auto it = eventSubs.find({ winId, name });
@@ -643,9 +656,15 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		// 页面没了，回包时会用到悬挂的 Page*。Async 一张表管住所有域，这里调一次就够
 		Async::removeByPage(winObj->page.get());
 		removeWin(winObj);
-		// 有托盘图标就不自动退：托盘的主场景就是"关掉窗口、应用留在托盘里继续跑"，
-		// 这时候要不要退出交给应用自己在托盘菜单里放个"退出"项决定
-		if (App::get()->getQuitWhenNoWindow() && winDic.empty() && !Tray::hasInstance()) PostQuitMessage(0);
+		// 所有窗口都关了：决定要不要退出。
+		// - app.quit() 发起的优雅退出（quitPhase==Closing）：发 will-quit，等 stopQuit 取消
+		// - 用户关掉最后一个窗口且 quitWhenNoWindow（无托盘）：同样走 will-quit 闸门
+		// 两者都通过 App 的 will-quit 流程，stopQuit 可在事件里阻止退出
+		if (winDic.empty()
+			&& (App::get()->inQuitSequence() || (App::get()->getQuitWhenNoWindow() && !Tray::hasInstance())))
+		{
+			App::get()->enterWillQuit();
+		}
 		return 0;
 	}
 	}

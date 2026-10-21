@@ -47,4 +47,6 @@ private:
 	static void closeStdin(const JsonObject& params, JsonObject& result);
 	/** 主动终止子进程（force 默认 true；Windows 上即 TerminateProcess 强杀） */
 	static void kill(const JsonObject& params, JsonObject& result);
+	/** 取当前应用的命令行参数数组（含 exe 路径作首元素）；用系统解析器，正确还原引号 / 转义 */
+	static void getArg(JsonObject& result);
 };

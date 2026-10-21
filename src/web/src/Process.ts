@@ -111,6 +111,20 @@ export class Process extends Ipc {
 	}
 
 	/**
+	 * 获取当前应用的命令行参数数组，与 Node 的 `process.argv` 一致：
+	 * 第一个元素是 exe 完整路径，其后才是真正的参数。
+	 * 框架自身注入的 `--path=...` 等参数也会如实包含在内
+	 *
+	 * ```ts
+	 * const args = await Process.getArg();
+	 * console.log(args[0], args.slice(1));
+	 * ```
+	 */
+	static getArg(): Promise<string[]> {
+		return Process.request<string[]>(Process.domain, 'getArg');
+	}
+
+	/**
 	 * 订阅事件；返回退订函数。
 	 *
 	 * 这里**不**像 `os.on()` / `win.on()` 那样还要通知 C++ 一声 ——

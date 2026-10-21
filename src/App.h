@@ -61,6 +61,11 @@ public:
 	static winrt::Windows::System::DispatcherQueue dispatcherQueue();
 	// 处理 type=app 域的消息：按 method 分发到本域的具体动作
 	static void handleApi(const std::wstring& method, const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame = nullptr);
+	// 优雅退出流程：app.quit 发 before-quit → 关所有窗口 → 全关完发 will-quit → 退出，
+	// 两个事件里都能用 stopQuit 阻止。下面两个是 Win::winProc 在"最后一个窗口销毁"时用的钩子
+	static bool inQuitSequence();   // 是否处于 app.quit() 发起的关窗阶段
+	static void enterWillQuit();    // 所有窗口已关：发 will-quit 并进入待退出闸门（Win::winProc 调用）
+	static void onQuitTimer(UINT id); // 隐藏窗口的 WM_TIMER 回调：按阶段推进退出 / 检查 stopQuit（App 隐藏窗口的 appWndProc 调用）
 	static std::filesystem::path getDataPath();
 	// 启动命令行 `--path=...` 指明的 package.json 所在目录，
 	// 必须在 init() 之前调用；不调用则走默认（exe 同目录）
@@ -109,5 +114,10 @@ private:
 	static void secondInstanceServerLoop(App* self);
 	// 页面在 second-instance 事件里调用：放行当前在等裁决的那一个第二实例
 	void allowSecondInstanceOnce();
+
+	// ---- 优雅退出（app.quit / before-quit / will-quit / stopQuit）----
+	enum class QuitPhase { Idle, BeforeQuit, Closing, WillQuit };
+	static inline QuitPhase quitPhase{ QuitPhase::Idle };
+	static inline bool quitPrevented{ false };
 };
 

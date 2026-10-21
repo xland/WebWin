@@ -27,6 +27,38 @@ namespace {
 	std::filesystem::path packagePathOverride;
 	// 实际生效的基准目录：命令行为主，否则 exe 同目录
 	std::filesystem::path packageBaseDir;
+
+	// ---- 优雅退出用的隐藏消息窗口 + 定时器 ----
+	// 退出流程（before-quit / will-quit）需要"延后一小段时间，给 JS 调用 stopQuit 的机会"，
+	// 延期用定时器实现；SetTimer 需要一个真实 HWND 收 WM_TIMER，于是建一个隐藏的消息窗口。
+	// 它随进程存活，不随订阅者增减销毁（参照 os / display / tray 那种隐藏窗口的做法）
+	HWND appHwnd = nullptr;
+	constexpr UINT TIMER_BEFORE_QUIT = 1;
+	constexpr UINT TIMER_WILL_QUIT = 2;
+	// before-quit / will-quit 下发后是异步到达 JS 的，框架给 JS 一个宽限窗口来调用 stopQuit；
+	// 超过这个窗口仍未阻止，才继续推进退出。正常同步处理函数的往返时间远小于此值
+	constexpr UINT QUIT_GRACE_MS = 200;
+
+	LRESULT CALLBACK appWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+	{
+		if (msg == WM_TIMER)
+		{
+			App::onQuitTimer(static_cast<UINT>(wParam));
+			return 0;
+		}
+		return DefWindowProc(hwnd, msg, wParam, lParam);
+	}
+
+	void createAppWindow()
+	{
+		if (appHwnd) return;
+		WNDCLASS wc{};
+		wc.lpfnWndProc = appWndProc;
+		wc.hInstance = GetModuleHandle(nullptr);
+		wc.lpszClassName = L"WebWinAppMsgWindow";
+		RegisterClass(&wc);
+		appHwnd = CreateWindowEx(0, wc.lpszClassName, nullptr, 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
+	}
 }
 
 App::App()
@@ -51,6 +83,7 @@ void App::init()
         auto windowConfig = app->readPackageJson();
         app->initSingleInstance(); // 可能直接退出（被拒），也可能标记本进程为"被允许的额外实例"
         app->initDataPath();
+        createAppWindow();
         Win::Create(windowConfig); // 空对象也行：Win::readConfig 每个字段都会回落到默认值
         Env::init();
 	}
@@ -94,6 +127,28 @@ void App::handleApi(const std::wstring& method, const JsonObject& params, Page* 
 		return;
 	}
 
+	// 优雅退出：先发 before-quit 给 JS 一个阻止的机会；没被阻止就关所有窗口，
+	// 全关完再发 will-quit（同样可阻止），最后才 PostQuitMessage。
+	// 已处于退出流程中则忽略重复调用
+	if (method == L"quit")
+	{
+		if (quitPhase != QuitPhase::Idle) { Json::setOk(result); return; }
+		quitPrevented = false;
+		quitPhase = QuitPhase::BeforeQuit;
+		JsonObject payload;
+		Win::fireEvent(Win::NO_WINDOW, L"before-quit", payload);
+		SetTimer(appHwnd, TIMER_BEFORE_QUIT, QUIT_GRACE_MS, nullptr);
+		Json::setOk(result);
+		return;
+	}
+	if (method == L"stopQuit")
+	{
+		// 仅在 before-quit / will-quit 事件处理函数里调用才有意义；其余情况忽略
+		if (quitPhase == QuitPhase::BeforeQuit || quitPhase == QuitPhase::WillQuit) quitPrevented = true;
+		Json::setOk(result);
+		return;
+	}
+
 	std::wstring data;
 	if (method == L"getAppPath") data = getPackageBaseDir().wstring(); // package.json 所在目录
 	else if (method == L"getExePath") data = Util::getExeDir().wstring();
@@ -109,6 +164,43 @@ void App::handleApi(const std::wstring& method, const JsonObject& params, Page* 
 
 	Json::setOk(result);
 	result.SetNamedValue(L"data", JsonValue::CreateStringValue(data));
+}
+
+void App::onQuitTimer(UINT id)
+{
+	if (id == TIMER_BEFORE_QUIT)
+	{
+		KillTimer(appHwnd, TIMER_BEFORE_QUIT);
+		if (quitPhase != QuitPhase::BeforeQuit) return;
+		if (quitPrevented) { quitPhase = QuitPhase::Idle; return; } // 被 stopQuit 取消
+		// 进入关窗阶段
+		quitPhase = QuitPhase::Closing;
+		quitPrevented = false;
+		int n = Win::closeAll();
+		if (n == 0) enterWillQuit(); // 没有窗口可关 → 直接进 will-quit
+	}
+	else if (id == TIMER_WILL_QUIT)
+	{
+		KillTimer(appHwnd, TIMER_WILL_QUIT);
+		if (quitPhase != QuitPhase::WillQuit) return;
+		if (quitPrevented) { quitPhase = QuitPhase::Idle; return; } // 被 stopQuit 取消：app 继续运行（窗口已关）
+		PostQuitMessage(0);
+	}
+}
+
+void App::enterWillQuit()
+{
+	if (quitPhase == QuitPhase::WillQuit) return; // 防重复触发
+	quitPhase = QuitPhase::WillQuit;
+	quitPrevented = false;
+	JsonObject payload;
+	Win::fireEvent(Win::NO_WINDOW, L"will-quit", payload);
+	SetTimer(appHwnd, TIMER_WILL_QUIT, QUIT_GRACE_MS, nullptr);
+}
+
+bool App::inQuitSequence()
+{
+	return quitPhase == QuitPhase::Closing;
 }
 
 void App::setPackagePath(std::filesystem::path path)
