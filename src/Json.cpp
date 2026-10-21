@@ -68,7 +68,17 @@ void Json::setOk(JsonObject& result)
 
 void Json::setError(JsonObject& result, const std::wstring& message)
 {
-	// error 暂用字符串承载；等错误码表（T011）定下来再改成 { code, message }
+	// 未升级的调用点仍用纯字符串（JS toError 兼容）；已升级的用下方带 code 的版本
 	result.SetNamedValue(L"ok", JsonValue::CreateBooleanValue(false));
 	result.SetNamedValue(L"error", JsonValue::CreateStringValue(message));
+}
+
+void Json::setError(JsonObject& result, const std::wstring& code, const std::wstring& message)
+{
+	// 结构化错误（见 arch/11-error-codes.md）：{ code, message }
+	result.SetNamedValue(L"ok", JsonValue::CreateBooleanValue(false));
+	JsonObject err{ nullptr };
+	err.SetNamedValue(L"code", JsonValue::CreateStringValue(code));
+	err.SetNamedValue(L"message", JsonValue::CreateStringValue(message));
+	result.SetNamedValue(L"error", err);
 }

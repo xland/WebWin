@@ -340,7 +340,7 @@ void Win::handleApi(const std::wstring& method, const JsonObject& params, int wi
 	if (method == L"on" || method == L"off")
 	{
 		auto name = Json::getString(params, L"name", L"");
-		if (winId < 0 || name.empty()) { Json::setError(result, L"invalid event subscription"); return; }
+		if (winId < 0 || name.empty()) { Json::setError(result, L"win.invalidSubscription", L"invalid event subscription"); return; }
 		if (method == L"on") subscribeEvent(winId, name, page, frame);
 		else unsubscribeEvent(winId, name, page, frame);
 		Json::setOk(result);
@@ -359,7 +359,7 @@ void Win::handleApi(const std::wstring& method, const JsonObject& params, int wi
 	// 其余方法都要落到具体窗口上：winId 是唯一的路由凭据。
 	// 窗口已关闭时 getById 拿不到，直接返回错误字符串
 	auto target = getById(winId);
-	if (!target) { Json::setError(result, L"window not found: " + std::to_wstring(winId)); return; }
+	if (!target) { Json::setError(result, L"win.notFound", L"window not found: " + std::to_wstring(winId)); return; }
 	auto hwnd = target->hwnd;
 
 	// 改变窗口几何，并清掉残留的 :hover（见 resetHoverState）。
@@ -408,7 +408,7 @@ void Win::handleApi(const std::wstring& method, const JsonObject& params, int wi
 			else if (edge == L"topRight") hit = HTTOPRIGHT;
 			else if (edge == L"bottomLeft") hit = HTBOTTOMLEFT;
 			else if (edge == L"bottomRight") hit = HTBOTTOMRIGHT;
-			else { Json::setError(result, L"unknown edge: " + edge); return; }
+			else { Json::setError(result, L"win.invalidParam", L"unknown edge: " + edge); return; }
 		}
 		// 鼠标此刻被 webview 子窗口 capture 着（同线程，解得掉）：不释放，
 		// 系统收不到后续消息，循环起不来
@@ -444,7 +444,7 @@ void Win::handleApi(const std::wstring& method, const JsonObject& params, int wi
 		// 挂窗口右键菜单：传 menuId < 0 表示解绑（重新走浏览器默认的右键菜单）
 		target->menuId = Json::getInt(params, L"menuId", -1);
 	}
-	else { Json::setError(result, L"unknown method: " + method); return; }
+	else { Json::setError(result, L"core.unknownMethod", L"unknown method: " + method); return; }
 	Json::setOk(result);
 }
 

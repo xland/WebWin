@@ -37,13 +37,13 @@ void Net::handleApi(const std::wstring& method, const JsonObject& params, Page* 
 	if (method == L"on") { Win::subscribeEvent(Win::NO_WINDOW, Json::getString(params, L"name", L""), page, frame); Json::setOk(result); return; }
 	if (method == L"off") { Win::unsubscribeEvent(Win::NO_WINDOW, Json::getString(params, L"name", L""), page, frame); Json::setOk(result); return; }
 
-	Json::setError(result, L"unknown method: " + method);
+	Json::setError(result, L"core.unknownMethod", L"unknown method: " + method);
 }
 
 void Net::getAddress(JsonObject& result)
 {
 	WSADATA wsa;
-	if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) { Json::setError(result, L"初始化 Winsock 失败"); return; }
+	if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) { Json::setError(result, L"net.error", L"初始化 Winsock 失败"); return; }
 
 	// 先按经验值申请，不够时 GetAdaptersAddresses 会回填所需大小，再取一次
 	ULONG size = 15000;
@@ -59,7 +59,7 @@ void Net::getAddress(JsonObject& result)
 	if (code != ERROR_SUCCESS)
 	{
 		WSACleanup();
-		Json::setError(result, L"取网卡信息失败");
+		Json::setError(result, L"net.error", L"取网卡信息失败");
 		return;
 	}
 
@@ -325,7 +325,7 @@ namespace {
 void Net::createNamedPipeServer(const JsonObject& params, Page* page, JsonObject& result)
 {
 	auto name = Json::getString(params, L"name", L"");
-	if (name.empty()) { Json::setError(result, L"name 不能为空"); return; }
+	if (name.empty()) { Json::setError(result, L"net.invalidParam", L"name 不能为空"); return; }
 	auto encoding = Json::getString(params, L"encoding", L"utf8");
 	auto bufSize = Json::getInt(params, L"bufferSize", 4096);
 
@@ -354,7 +354,7 @@ void Net::createNamedPipeServer(const JsonObject& params, Page* page, JsonObject
 void Net::createNamedPipeClient(const JsonObject& params, Page* page, JsonObject& result)
 {
 	auto name = Json::getString(params, L"name", L"");
-	if (name.empty()) { Json::setError(result, L"name 不能为空"); return; }
+	if (name.empty()) { Json::setError(result, L"net.invalidParam", L"name 不能为空"); return; }
 	auto encoding = Json::getString(params, L"encoding", L"utf8");
 
 	std::wstring pipeName = L"\\\\.\\pipe\\" + name;
@@ -362,7 +362,7 @@ void Net::createNamedPipeClient(const JsonObject& params, Page* page, JsonObject
 		nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
 	if (h == INVALID_HANDLE_VALUE)
 	{
-		Json::setError(result, L"连不上命名管道（服务端没起？）：" + name);
+		Json::setError(result, L"net.pipe.connectFailed", L"连不上命名管道（服务端没起？）：" + name);
 		return;
 	}
 
@@ -428,7 +428,7 @@ void Net::sendData(const JsonObject& params, JsonObject& result)
 	DWORD wrote = 0;
 	if (!WriteFile(c->handle, frame.data(), static_cast<DWORD>(frame.size()), &wrote, nullptr))
 	{
-		Json::setError(result, L"发送失败");
+		Json::setError(result, L"net.error", L"发送失败");
 		return;
 	}
 	Json::setOk(result);

@@ -155,7 +155,7 @@ bool Dialog::handleApi(const std::wstring& method, const JsonObject& params, Pag
 	if (!isSupported(method)) return false; // 交给调用方回 unknown method
 
 	auto hwnd = page ? page->getHwnd() : nullptr; // 对话框要挂在这个窗口上才模态
-	if (!hwnd) { Json::setError(result, L"页面所在的窗口已经没了"); return false; }
+	if (!hwnd) { Json::setError(result, L"dialog.windowGone", L"页面所在的窗口已经没了"); return false; }
 
 	Task task;
 	task.method = method;
@@ -170,7 +170,7 @@ bool Dialog::handleApi(const std::wstring& method, const JsonObject& params, Pag
 	if (!App::runLater([] { Dialog::run(); }))
 	{
 		pending.pop_back(); // 没排进去：把刚放进去的这条撤了，别让它占着队列
-		Json::setError(result, L"无法显示对话框：调度失败");
+		Json::setError(result, L"dialog.showFailed", L"无法显示对话框：调度失败");
 		return false;
 	}
 	return true; // 响应稍后由 run() 发回：调用方不要再发一次
@@ -202,7 +202,7 @@ void Dialog::openPath(const JsonObject& params, HWND owner, JsonObject& result)
 	ComPtr<IFileOpenDialog> dlg;
 	if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&dlg))) || !dlg)
 	{
-		Json::setError(result, L"创建文件对话框失败");
+		Json::setError(result, L"dialog.showFailed", L"创建文件对话框失败");
 		return;
 	}
 
@@ -215,7 +215,7 @@ void Dialog::openPath(const JsonObject& params, HWND owner, JsonObject& result)
 
 	DWORD current{ 0 }; // 先取再合，别把默认选项（比如 FOS_FILEMUSTEXIST）冲掉
 	if (SUCCEEDED(dlg->GetOptions(&current))) dlg->SetOptions(current | options);
-	if (!applyCommonOptions(dlg.Get(), params)) { Json::setError(result, L"设置对话框选项失败"); return; }
+	if (!applyCommonOptions(dlg.Get(), params)) { Json::setError(result, L"dialog.error", L"设置对话框选项失败"); return; }
 
 	// 过滤器只在选文件时有效：选文件夹对话框不接受文件类型
 	auto filters = readFilters(params);
@@ -240,9 +240,9 @@ void Dialog::openPath(const JsonObject& params, HWND owner, JsonObject& result)
 	if ((options & FOS_ALLOWMULTISELECT) == FOS_ALLOWMULTISELECT)
 	{
 		ComPtr<IShellItemArray> results;
-		if (FAILED(dlg->GetResults(&results)) || !results) { Json::setError(result, L"读取所选文件失败"); return; }
+		if (FAILED(dlg->GetResults(&results)) || !results) { Json::setError(result, L"dialog.error", L"读取所选文件失败"); return; }
 		DWORD count{ 0 };
-		if (FAILED(results->GetCount(&count))) { Json::setError(result, L"读取所选文件失败"); return; }
+		if (FAILED(results->GetCount(&count))) { Json::setError(result, L"dialog.error", L"读取所选文件失败"); return; }
 		for (DWORD i = 0; i < count; ++i)
 		{
 			ComPtr<IShellItem> item;
@@ -253,7 +253,7 @@ void Dialog::openPath(const JsonObject& params, HWND owner, JsonObject& result)
 	else
 	{
 		ComPtr<IShellItem> item;
-		if (FAILED(dlg->GetResult(&item)) || !item) { Json::setError(result, L"读取所选文件失败"); return; }
+		if (FAILED(dlg->GetResult(&item)) || !item) { Json::setError(result, L"dialog.error", L"读取所选文件失败"); return; }
 		paths.Append(JsonValue::CreateStringValue(pathOf(item.Get())));
 	}
 	finish(result, false, paths);
@@ -264,7 +264,7 @@ void Dialog::savePath(const JsonObject& params, HWND owner, JsonObject& result)
 	ComPtr<IFileSaveDialog> dlg;
 	if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&dlg))) || !dlg)
 	{
-		Json::setError(result, L"创建保存对话框失败");
+		Json::setError(result, L"dialog.showFailed", L"创建保存对话框失败");
 		return;
 	}
 
@@ -274,7 +274,7 @@ void Dialog::savePath(const JsonObject& params, HWND owner, JsonObject& result)
 	auto options = FOS_FORCEFILESYSTEM;
 	DWORD current{ 0 };
 	if (SUCCEEDED(dlg->GetOptions(&current))) dlg->SetOptions((current | options) & ~FOS_FILEMUSTEXIST);
-	if (!applyCommonOptions(dlg.Get(), params)) { Json::setError(result, L"设置对话框选项失败"); return; }
+	if (!applyCommonOptions(dlg.Get(), params)) { Json::setError(result, L"dialog.error", L"设置对话框选项失败"); return; }
 
 	auto filters = readFilters(params);
 	if (!filters.empty())
@@ -293,7 +293,7 @@ void Dialog::savePath(const JsonObject& params, HWND owner, JsonObject& result)
 	if (FAILED(hr)) { Json::setError(result, L"显示保存对话框失败"); return; }
 
 	ComPtr<IShellItem> item;
-	if (FAILED(dlg->GetResult(&item)) || !item) { Json::setError(result, L"读取保存路径失败"); return; }
+	if (FAILED(dlg->GetResult(&item)) || !item) { Json::setError(result, L"dialog.error", L"读取保存路径失败"); return; }
 	finish(result, false, JsonValue::CreateStringValue(pathOf(item.Get())));
 }
 
@@ -330,8 +330,8 @@ void Dialog::msgBox(const JsonObject& params, HWND owner, JsonObject& result)
 	case IDABORT: answer = L"abort"; break;
 	case IDRETRY: answer = L"retry"; break;
 	case IDIGNORE: answer = L"ignore"; break;
-	case 0: Json::setError(result, L"显示消息框失败，GetLastError=" + std::to_wstring(GetLastError())); return;
-	default: Json::setError(result, L"消息框返回了未知结果：" + std::to_wstring(ret)); return;
+	case 0: Json::setError(result, L"dialog.showFailed", L"显示消息框失败，GetLastError=" + std::to_wstring(GetLastError())); return;
+	default: Json::setError(result, L"dialog.error", L"消息框返回了未知结果：" + std::to_wstring(ret)); return;
 	}
 	Json::setOk(result);
 	result.SetNamedValue(L"data", JsonValue::CreateStringValue(answer));
@@ -340,13 +340,13 @@ void Dialog::msgBox(const JsonObject& params, HWND owner, JsonObject& result)
 void Dialog::itemInFolder(const JsonObject& params, JsonObject& result)
 {
 	auto path = Json::getString(params, L"path", L"");
-	if (path.empty()) { Json::setError(result, L"缺少 path 参数"); return; }
+	if (path.empty()) { Json::setError(result, L"dialog.invalidParam", L"缺少 path 参数"); return; }
 
 	// explorer /select,"<文件>"：打开资源管理器并选中该文件。
 	// 路径带空格也要能用，所以整体加引号
 	auto command = L"/select,\"" + path + L"\"";
 	auto ret = reinterpret_cast<INT_PTR>(ShellExecute(nullptr, L"open", L"explorer.exe", command.c_str(), nullptr, SW_SHOW));
-	if (ret <= 32) { Json::setError(result, L"打开资源管理器失败，错误码=" + std::to_wstring(ret)); return; }
+	if (ret <= 32) { Json::setError(result, L"dialog.error", L"打开资源管理器失败，错误码=" + std::to_wstring(ret)); return; }
 	Json::setOk(result);
 }
 

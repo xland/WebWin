@@ -214,7 +214,16 @@ JsonObject App::readPackageJson()
 		JsonObject webwin = Json::getObject(json, L"webwin");
 		if (!webwin) webwin = json;
 
-		id = Json::getString(webwin, L"id", id);
+		// id 校验（T008）：必须是纯 ASCII 可见字符、不含空格、≤128 字符；
+		// 缺失或非法都回落默认 "webwin"（非法时给一条调试输出，便于开发者发现配置写错）
+		auto rawId = Json::getString(webwin, L"id", L"");
+		if (!rawId.empty())
+		{
+			bool ok = rawId.size() <= 128;
+			for (wchar_t c : rawId) { if (c < 0x21 || c > 0x7E) { ok = false; break; } }
+			if (ok) id = rawId;
+			else OutputDebugStringW((L"[WebWin] 配置 id 不合法（须纯 ASCII、不含空格、≤128 字符），已回落 \"webwin\"：\"" + rawId + L"\"\n").c_str());
+		}
 		name = Json::getString(webwin, L"name", name);
 		quitWhenNoWindow = Json::getBool(webwin, L"quitWhenNoWindow", quitWhenNoWindow);
 		// 整个 window 段落交给 Win 自己解释（字段逐个回落见 Win::readConfig）；
@@ -224,8 +233,13 @@ JsonObject App::readPackageJson()
 		// 单实例开关在**顶层**（不在 webwin 段内），所以从根对象 json 读
 		secondInstanceNotify = Json::getBool(json, L"secondInstanceNotify", secondInstanceNotify);
 
+		// version 校验（T008）：必须是 [major, minor, patch] 三个非负整数；
+		// 否则回落默认 {1,1,1}
 		auto vers = Json::getIntArray(webwin, L"version");
-		if (vers.size() >= 3) version = { vers[0], vers[1], vers[2] };
+		if (vers.size() == 3 && vers[0] >= 0 && vers[1] >= 0 && vers[2] >= 0)
+			version = { vers[0], vers[1], vers[2] };
+		else if (!vers.empty())
+			OutputDebugStringW(L"[WebWin] 配置 version 不合法（须为 [major, minor, patch] 三个整数），已回落默认值\n");
 	}
 	if (id.empty()) id = L"webwin"; // 显式配成空串也回落到默认值
 

@@ -232,7 +232,7 @@ void Db::handleApi(const std::wstring& method, const JsonObject& params, Page* p
 		std::wstring err;
 		if (!conn->open(Json::getString(params, L"name", L""), err))
 		{
-			Json::setError(result, err);
+			Json::setError(result, L"db.error", err);
 			return;
 		}
 
@@ -248,7 +248,7 @@ void Db::handleApi(const std::wstring& method, const JsonObject& params, Page* p
 	auto it = conns.find(id);
 	if (it == conns.end())
 	{
-		Json::setError(result, L"db not found: " + std::to_wstring(id));
+		Json::setError(result, L"db.notFound", L"db not found: " + std::to_wstring(id));
 		return;
 	}
 	auto db = it->second->db;
@@ -263,7 +263,7 @@ void Db::handleApi(const std::wstring& method, const JsonObject& params, Page* p
 	auto sql = Json::getString(params, L"sql", L"");
 	if (sql.empty())
 	{
-		Json::setError(result, L"sql missing");
+		Json::setError(result, L"db.sqlMissing", L"sql missing");
 		return;
 	}
 
@@ -274,7 +274,7 @@ void Db::handleApi(const std::wstring& method, const JsonObject& params, Page* p
 		auto rc = sqlite3_exec(db, Util::wideToUtf8(sql).c_str(), nullptr, nullptr, &msg);
 		if (rc != SQLITE_OK)
 		{
-			Json::setError(result, L"执行失败：" + Util::utf8ToWide(msg ? msg : sqlite3_errmsg(db)));
+			Json::setError(result, L"db.sqlError", L"执行失败：" + Util::utf8ToWide(msg ? msg : sqlite3_errmsg(db)));
 			sqlite3_free(msg);
 			return;
 		}
@@ -288,14 +288,14 @@ void Db::handleApi(const std::wstring& method, const JsonObject& params, Page* p
 		std::wstring err;
 		if (!prepare(db, sql, params, stmt, err))
 		{
-			Json::setError(result, err);
+			Json::setError(result, L"db.error", err);
 			return;
 		}
 		auto rc = sqlite3_step(stmt);
 		sqlite3_finalize(stmt);
 		if (rc != SQLITE_DONE && rc != SQLITE_ROW)
 		{
-			Json::setError(result, L"执行失败：" + Util::utf8ToWide(sqlite3_errmsg(db)));
+			Json::setError(result, L"db.sqlError", L"执行失败：" + Util::utf8ToWide(sqlite3_errmsg(db)));
 			return;
 		}
 		JsonObject data;
@@ -313,7 +313,7 @@ void Db::handleApi(const std::wstring& method, const JsonObject& params, Page* p
 		std::wstring err;
 		if (!prepare(db, sql, params, stmt, err))
 		{
-			Json::setError(result, err);
+			Json::setError(result, L"db.error", err);
 			return;
 		}
 		auto rc = sqlite3_step(stmt);
@@ -327,7 +327,7 @@ void Db::handleApi(const std::wstring& method, const JsonObject& params, Page* p
 		if (rc != SQLITE_ROW)
 		{
 			sqlite3_finalize(stmt);
-			Json::setError(result, L"查询失败：" + Util::utf8ToWide(sqlite3_errmsg(db)));
+			Json::setError(result, L"db.sqlError", L"查询失败：" + Util::utf8ToWide(sqlite3_errmsg(db)));
 			return;
 		}
 		auto row = readRow(stmt);
@@ -343,7 +343,7 @@ void Db::handleApi(const std::wstring& method, const JsonObject& params, Page* p
 		std::wstring err;
 		if (!prepare(db, sql, params, stmt, err))
 		{
-			Json::setError(result, err);
+			Json::setError(result, L"db.error", err);
 			return;
 		}
 		JsonArray rows;
@@ -352,7 +352,7 @@ void Db::handleApi(const std::wstring& method, const JsonObject& params, Page* p
 		sqlite3_finalize(stmt);
 		if (rc != SQLITE_DONE)
 		{
-			Json::setError(result, L"查询失败：" + Util::utf8ToWide(sqlite3_errmsg(db)));
+			Json::setError(result, L"db.sqlError", L"查询失败：" + Util::utf8ToWide(sqlite3_errmsg(db)));
 			return;
 		}
 		Json::setOk(result);
@@ -360,7 +360,7 @@ void Db::handleApi(const std::wstring& method, const JsonObject& params, Page* p
 		return;
 	}
 
-	Json::setError(result, L"unknown method: " + method);
+	Json::setError(result, L"core.unknownMethod", L"unknown method: " + method);
 }
 
 void Db::removeByPage(Page* target)

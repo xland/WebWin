@@ -16,9 +16,8 @@
 | T005 | 实现 **加解密 API** | 待实现 | 负责人排期 | `01-api.md` | 待办 |
 | T006 | 实现 **启动 WebSocket 服务** 的能力 | 待实现 | 负责人排期 | `01-api.md` | 待办 |
 | T007 | **内置默认页面**：`package.json` 缺失 / 解析失败 / 字段非法时显示 exe 内置的默认页面 | 待完善 | 负责人安排正式设计时 | `05-boot-config.md` | 进行中 |
-| T009 | **默认页面迁入 `src/web`**：把 `Page` 里的 `defaultPageHtml` 字符串常量改成 `src/web` 下的文件，作为第二个 RCDATA 资源内嵌 | 已完成（页面本身的正式设计仍属 T007） | — | `05-boot-config.md` | 完成 |
-| T010 | **SDK 业务 api 逐项设计**：`01-api.md` 的 14 项基础能力在 TS SDK 中的命名与参数。**窗口已实现**（`win.maximize` / `minimize` / `restore` / `hide` / `show` / `resize` / `move` / `close` / `destroy` + `Win.create`），其余能力待设计 | 部分完成 | 负责人逐项设计时 | `01-api.md` / `07-web.md` | 进行中 |
-| T011 | **错误码表**：消息协议里 `error` 的 `code` 取值；目前 `error` 是字符串 | 待设计 | 与 T010 联动 | `02-architecture.md` | 待办 |
+| T010 | **SDK 业务 api 逐项设计**：`01-api.md` 的 14 项基础能力在 TS SDK 中的命名与参数。**窗口 / 文件系统（fs：读写、分块流式、随机读）/ 网络（net：网卡信息 + 命名管道通信）已实现**，其余能力（http server、websocket、加解密、子进程补全、托盘图标自定义等）待设计 | 部分完成 | 负责人逐项设计时 | `01-api.md` / `07-web.md` | 进行中 |
+| T011 | **错误码表**：消息协议 `error` 改为 `{ code, message }`；码表与 `Json::setError(code, msg)` 重载已落地（`arch/11-error-codes.md`），fs/net/win/dialog/db/http 已接入，剩余 display/tray/process/menu/os/env/res 按约定渐进补 | 部分完成 | 与 T010 联动 | `02-architecture.md` / `11-error-codes.md` | 进行中 |
 | T008 | **配置字段校验**：`id` 必须为英文、**≤128 字符、不含空格**、缺失时回落 `webwin`；`version` 必须为三个数字的数组 | 待实现 | 配置校验完善时 | `06-package-json.md` | 待办 |
 | T012 | **`display-dpi-changed` 事件**：Windows 没有专门的显示器 DPI 变更消息，只能在 `WM_DISPLAYCHANGE` / `WM_SETTINGCHANGE` 那批消息里顺带 diff。**粒度未定**（按屏还是按进程、载荷给不给旧值），定下来前不实现 | 待设计 | 负责人决定 DPI 事件的语义时 | `../doc/display.md` / `01-api.md` | 待办 |
 | T013 | **托盘自定义图标**：`Tray.create()` 目前一律用 exe 自己的图标（`src/Res.rc` 的 `100 ICON`，数字 id 是约定好的）。需要让开发者指定图标时再做，顺带定清楚支持的格式与尺寸 | 待实现 | 有人提出要换托盘图标时 | `../doc/tray.md` / `01-api.md` | 待办 |

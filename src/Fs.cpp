@@ -76,7 +76,7 @@ namespace
 				return AsyncResult::fail(error + L"：" + path.wstring());
 			return AsyncResult::ok(nullptr); // 没返回值：resolve(undefined)
 		});
-		if (!started) { Json::setError(result, failMsg); return false; }
+		if (!started) { Json::setError(result, L"fs.error", failMsg); return false; }
 		return true;
 	}
 }
@@ -102,7 +102,7 @@ bool Fs::handleApi(const std::wstring& method, const JsonObject& params, Page* p
 bool Fs::readFile(const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
 {
 	auto raw = Json::getString(params, L"path", L"");
-	if (raw.empty()) { Json::setError(result, L"path 不能为空"); return false; }
+	if (raw.empty()) { Json::setError(result, L"fs.invalidParam", L"path 不能为空"); return false; }
 	auto path = resolvePath(raw);
 	auto encoding = Json::getString(params, L"encoding", L"utf8");
 	auto chunkSize = Json::getInt(params, L"chunkSize", 0);
@@ -168,7 +168,7 @@ bool Fs::readFile(const JsonObject& params, Page* page, JsonObject& result, ICor
 			};
 			return r;
 		});
-		if (!started) { Json::setError(result, L"创建文件分块读取任务失败"); return false; }
+		if (!started) { Json::setError(result, L"fs.error", L"创建文件分块读取任务失败"); return false; }
 		return true;
 	}
 
@@ -200,20 +200,20 @@ bool Fs::readFile(const JsonObject& params, Page* page, JsonObject& result, ICor
 			return JsonValue::CreateStringValue(text);
 		});
 	});
-	if (!started) { Json::setError(result, L"创建文件读取任务失败"); return false; }
+	if (!started) { Json::setError(result, L"fs.error", L"创建文件读取任务失败"); return false; }
 	return true;
 }
 
 bool Fs::readFileChunk(const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
 {
 	auto raw = Json::getString(params, L"path", L"");
-	if (raw.empty()) { Json::setError(result, L"path 不能为空"); return false; }
+	if (raw.empty()) { Json::setError(result, L"fs.invalidParam", L"path 不能为空"); return false; }
 	auto path = resolvePath(raw);
 	auto encoding = Json::getString(params, L"encoding", L"utf8");
 	auto start = Json::getInt(params, L"start", 0);
 	auto size = Json::getInt(params, L"size", 0);
 	if (start < 0) start = 0;
-	if (size <= 0) { Json::setError(result, L"size 必须为正数"); return false; }
+	if (size <= 0) { Json::setError(result, L"fs.invalidParam", L"size 必须为正数"); return false; }
 
 	auto started = Async::run(page, result, frame, [path, encoding, start, size] {
 		std::ifstream f(path, std::ios::binary);
@@ -241,14 +241,14 @@ bool Fs::readFileChunk(const JsonObject& params, Page* page, JsonObject& result,
 			return JsonValue::CreateStringValue(text);
 		});
 	});
-	if (!started) { Json::setError(result, L"创建文件分段读取任务失败"); return false; }
+	if (!started) { Json::setError(result, L"fs.error", L"创建文件分段读取任务失败"); return false; }
 	return true;
 }
 
 bool Fs::writeFile(const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
 {
 	auto raw = Json::getString(params, L"path", L"");
-	if (raw.empty()) { Json::setError(result, L"path 不能为空"); return false; }
+	if (raw.empty()) { Json::setError(result, L"fs.invalidParam", L"path 不能为空"); return false; }
 	auto path = resolvePath(raw);
 
 	auto text = Json::getString(params, L"data", L"");
@@ -257,7 +257,7 @@ bool Fs::writeFile(const JsonObject& params, Page* page, JsonObject& result, ICo
 	if (encoding == L"base64")
 	{
 		bytes = Util::fromBase64(Util::wideToUtf8(text));
-		if (!text.empty() && bytes.empty()) { Json::setError(result, L"data 不是合法的 base64"); return false; }
+		if (!text.empty() && bytes.empty()) { Json::setError(result, L"fs.encodeInvalid", L"data 不是合法的 base64"); return false; }
 	}
 	else bytes = Util::wideToUtf8(text);
 
@@ -267,7 +267,7 @@ bool Fs::writeFile(const JsonObject& params, Page* page, JsonObject& result, ICo
 bool Fs::appendFile(const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
 {
 	auto raw = Json::getString(params, L"path", L"");
-	if (raw.empty()) { Json::setError(result, L"path 不能为空"); return false; }
+	if (raw.empty()) { Json::setError(result, L"fs.invalidParam", L"path 不能为空"); return false; }
 	auto path = resolvePath(raw);
 
 	auto text = Json::getString(params, L"data", L"");
@@ -276,7 +276,7 @@ bool Fs::appendFile(const JsonObject& params, Page* page, JsonObject& result, IC
 	if (encoding == L"base64")
 	{
 		bytes = Util::fromBase64(Util::wideToUtf8(text));
-		if (!text.empty() && bytes.empty()) { Json::setError(result, L"data 不是合法的 base64"); return false; }
+		if (!text.empty() && bytes.empty()) { Json::setError(result, L"fs.encodeInvalid", L"data 不是合法的 base64"); return false; }
 	}
 	else bytes = Util::wideToUtf8(text);
 
@@ -286,14 +286,14 @@ bool Fs::appendFile(const JsonObject& params, Page* page, JsonObject& result, IC
 bool Fs::unlink(const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
 {
 	auto raw = Json::getString(params, L"path", L"");
-	if (raw.empty()) { Json::setError(result, L"path 不能为空"); return false; }
+	if (raw.empty()) { Json::setError(result, L"fs.invalidParam", L"path 不能为空"); return false; }
 	auto path = resolvePath(raw);
 
 	auto started = Async::run(page, result, frame, [path] {
 		if (DeleteFileW(path.c_str())) return AsyncResult::ok(nullptr);
 		return AsyncResult::fail(L"删除失败：" + Util::winErr(GetLastError()) + L"：" + path.wstring());
 	});
-	if (!started) { Json::setError(result, L"创建文件删除任务失败"); return false; }
+	if (!started) { Json::setError(result, L"fs.error", L"创建文件删除任务失败"); return false; }
 	return true;
 }
 
@@ -301,7 +301,7 @@ bool Fs::copyFile(const JsonObject& params, Page* page, JsonObject& result, ICor
 {
 	auto rawSrc = Json::getString(params, L"src", L"");
 	auto rawDest = Json::getString(params, L"dest", L"");
-	if (rawSrc.empty() || rawDest.empty()) { Json::setError(result, L"src 和 dest 都不能为空"); return false; }
+	if (rawSrc.empty() || rawDest.empty()) { Json::setError(result, L"fs.invalidParam", L"src 和 dest 都不能为空"); return false; }
 	auto src = resolvePath(rawSrc);
 	auto dest = resolvePath(rawDest);
 
@@ -313,7 +313,7 @@ bool Fs::copyFile(const JsonObject& params, Page* page, JsonObject& result, ICor
 		return AsyncResult::fail(L"复制失败：" + Util::winErr(GetLastError())
 			+ L"：" + src.wstring() + L" → " + dest.wstring());
 	});
-	if (!started) { Json::setError(result, L"创建文件复制任务失败"); return false; }
+	if (!started) { Json::setError(result, L"fs.error", L"创建文件复制任务失败"); return false; }
 	return true;
 }
 
@@ -321,7 +321,7 @@ bool Fs::rename(const JsonObject& params, Page* page, JsonObject& result, ICoreW
 {
 	auto rawOld = Json::getString(params, L"oldPath", L"");
 	auto rawNew = Json::getString(params, L"newPath", L"");
-	if (rawOld.empty() || rawNew.empty()) { Json::setError(result, L"oldPath 和 newPath 都不能为空"); return false; }
+	if (rawOld.empty() || rawNew.empty()) { Json::setError(result, L"fs.invalidParam", L"oldPath 和 newPath 都不能为空"); return false; }
 	auto from = resolvePath(rawOld);
 	auto to = resolvePath(rawNew);
 
@@ -332,14 +332,14 @@ bool Fs::rename(const JsonObject& params, Page* page, JsonObject& result, ICoreW
 			return AsyncResult::ok(nullptr);
 		return AsyncResult::fail(L"移动失败：" + Util::winErr(GetLastError()) + L"：" + from.wstring());
 	});
-	if (!started) { Json::setError(result, L"创建文件移动任务失败"); return false; }
+	if (!started) { Json::setError(result, L"fs.error", L"创建文件移动任务失败"); return false; }
 	return true;
 }
 
 bool Fs::stat(const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
 {
 	auto raw = Json::getString(params, L"path", L"");
-	if (raw.empty()) { Json::setError(result, L"path 不能为空"); return false; }
+	if (raw.empty()) { Json::setError(result, L"fs.invalidParam", L"path 不能为空"); return false; }
 	auto path = resolvePath(raw);
 
 	auto started = Async::run(page, result, frame, [path] {
@@ -369,14 +369,14 @@ bool Fs::stat(const JsonObject& params, Page* page, JsonObject& result, ICoreWeb
 			return data;
 		});
 	});
-	if (!started) { Json::setError(result, L"创建信息查询任务失败"); return false; }
+	if (!started) { Json::setError(result, L"fs.error", L"创建信息查询任务失败"); return false; }
 	return true;
 }
 
 bool Fs::access(const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
 {
 	auto raw = Json::getString(params, L"path", L"");
-	if (raw.empty()) { Json::setError(result, L"path 不能为空"); return false; }
+	if (raw.empty()) { Json::setError(result, L"fs.invalidParam", L"path 不能为空"); return false; }
 	auto path = resolvePath(raw);
 	auto mode = Json::getInt(params, L"mode", 0); // 0 = F_OK，只查存在
 
@@ -405,6 +405,6 @@ bool Fs::access(const JsonObject& params, Page* page, JsonObject& result, ICoreW
 		// X_OK（1）在 Windows 上没有对应概念：能取到属性就算可执行，不额外检查
 		return AsyncResult::ok(nullptr);
 	});
-	if (!started) { Json::setError(result, L"创建访问检查任务失败"); return false; }
+	if (!started) { Json::setError(result, L"fs.error", L"创建访问检查任务失败"); return false; }
 	return true;
 }

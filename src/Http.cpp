@@ -204,7 +204,7 @@ bool Http::fetch(const JsonObject& params, Page* page, JsonObject& result, ICore
 	auto url = Json::getString(params, L"url", L"");
 	if (url.empty())
 	{
-		Json::setError(result, L"url 不能为空");
+		Json::setError(result, L"http.invalidParam", L"url 不能为空");
 		return false; // 当场就错：让调用方把这个 error 发回去
 	}
 
@@ -266,7 +266,7 @@ bool Http::fetch(const JsonObject& params, Page* page, JsonObject& result, ICore
 	});
 	if (!started)
 	{
-		Json::setError(result, L"创建请求线程失败");
+		Json::setError(result, L"http.createFailed", L"创建请求线程失败");
 		return false; // 当场就错：让调用方把这个 error 发回去
 	}
 	return true; // 已在后台跑起来：响应稍后由 Async 发回，调用方不要再发一次

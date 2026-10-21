@@ -26,4 +26,6 @@ public:
 	// 下行响应的信封（协议见 arch/02-architecture.md）：{ id, ok, data | error }
 	static void setOk(JsonObject& result);
 	static void setError(JsonObject& result, const std::wstring& message);
+	// 带错误码的版本：输出 { code, message } 对象（见 arch/11-error-codes.md）
+	static void setError(JsonObject& result, const std::wstring& code, const std::wstring& message);
 };

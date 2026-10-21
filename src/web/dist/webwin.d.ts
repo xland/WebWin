@@ -48,7 +48,7 @@ type Payload = unknown;
 type Handler<T = unknown> = (payload: T) => void;
 /**
  * C++ 侧下行的 error 字段。
- * 目前是字符串（错误码表尚未定义），将来会改成 { code, message }，故两种都兼容。
+ * 结构为 { code, message }（见 arch/11-error-codes.md）；旧版纯字符串也兼容。
  */
 type WebWinError = string | {
     code?: string;
