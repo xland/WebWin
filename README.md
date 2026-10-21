@@ -1,4 +1,4 @@
-# QuickWin
+# WebWin
 
 一个类似 TAURI 的框架，提供的能力比 TAURI 要多，仅支持 Windows，基于 C++20 开发，底层框架：WebView2、WinRT。
 
