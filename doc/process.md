@@ -23,6 +23,7 @@ console.log('pid =', proc.pid);
 | 方法 | 返回 | 说明 |
 | --- | --- | --- |
 | `Process.spawn(file, args?, options?)` | `Promise<Process>` | 启动子进程（async） |
+| `Process.getArg()` | `Promise<string[]>` | 取**当前应用**的命令行参数数组（首元素是 exe 路径） |
 | `proc.on(name, fn)` | `() => void` | 订阅事件，返回退订函数 |
 | `proc.off(name, fn)` | `void` | 取消订阅 |
 
@@ -47,6 +48,20 @@ interface SpawnOptions {
 | 属性 | 类型 | 说明 |
 | --- | --- | --- |
 | `pid` | `number` | 系统进程 id |
+
+## 命令行参数（getArg）
+
+取**当前应用**的命令行参数数组，与 Node 的 `process.argv` 一致：
+第一个元素是 exe 完整路径，其后才是真正的参数。
+
+```ts
+const args = await Process.getArg();
+console.log(args[0]);        // exe 完整路径
+console.log(args.slice(1));  // 真正的参数
+```
+
+框架自身注入的 `--path=...` 等启动参数也会如实包含在内。
+用 Windows 自带解析器（`CommandLineToArgvW`）解析，正确还原引号与转义。
 
 ## 事件
 

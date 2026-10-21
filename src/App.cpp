@@ -59,6 +59,34 @@ namespace {
 		RegisterClass(&wc);
 		appHwnd = CreateWindowEx(0, wc.lpszClassName, nullptr, 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
 	}
+
+	// 当前进程的完整 exe 路径（含文件名）
+	std::wstring currentExePath()
+	{
+		std::wstring path(65536, L'\0');
+		auto len = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+		if (len == 0) return {};
+		path.resize(len);
+		return path;
+	}
+
+	// 按 MSVCRT 规则给命令行参数加引号（与 Process::quote 同款；文件名一律加引号）
+	std::wstring quoteArg(const std::wstring& text)
+	{
+		if (!text.empty() && text.find_first_of(L" \t\"") == std::wstring::npos) return text;
+		std::wstring out{ L"\"" };
+		for (size_t i = 0; i < text.size(); ++i)
+		{
+			auto slashes = size_t{ 0 };
+			while (i < text.size() && text[i] == L'\\') { ++i; ++slashes; }
+			if (i == text.size()) { out.append(slashes * 2, L'\\'); break; }
+			if (text[i] == L'"') out.append(slashes * 2 + 1, L'\\');
+			else out.append(slashes, L'\\');
+			out.push_back(text[i]);
+		}
+		out.push_back(L'"');
+		return out;
+	}
 }
 
 App::App()
@@ -120,8 +148,16 @@ void App::handleApi(const std::wstring& method, const JsonObject& params, Page* 
 		return;
 	}
 
+	// 登记一次重启请求（不立即退出）；真正退出时 performRelaunch 才拉起新实例
+	if (method == L"relaunch")
+	{
+		relaunch(params, result);
+		return;
+	}
+
 	if (method == L"exit")
 	{
+		performRelaunch(); // 退出前先拉起登记过的新实例（若有），保证旧实例退出后新实例能起来
 		PostQuitMessage(Json::getInt(params, L"exitCode", 0));
 		Json::setOk(result);
 		return;
@@ -184,6 +220,7 @@ void App::onQuitTimer(UINT id)
 		KillTimer(appHwnd, TIMER_WILL_QUIT);
 		if (quitPhase != QuitPhase::WillQuit) return;
 		if (quitPrevented) { quitPhase = QuitPhase::Idle; return; } // 被 stopQuit 取消：app 继续运行（窗口已关）
+		performRelaunch(); // 退出前先拉起登记过的新实例（若有）
 		PostQuitMessage(0);
 	}
 }
@@ -201,6 +238,54 @@ void App::enterWillQuit()
 bool App::inQuitSequence()
 {
 	return quitPhase == QuitPhase::Closing;
+}
+
+void App::relaunch(const JsonObject& params, JsonObject& result)
+{
+	relaunchExe_ = Json::getString(params, L"execPath", L"");
+	relaunchArgs_.clear();
+	auto args = Json::getArray(params, L"args");
+	if (args) for (auto item : args)
+	{
+		if (item.ValueType() == JsonValueType::String) relaunchArgs_.push_back(item.GetString().c_str());
+	}
+	relaunchPending_ = true;
+	Json::setOk(result);
+}
+
+void App::performRelaunch()
+{
+	if (!relaunchPending_) return;
+	relaunchPending_ = false;
+
+	// 单实例：第一实例持着互斥锁，直接在这里释放，让新实例能拿锁成为第一实例；
+	// 否则新实例启动时会把自己当成"第二实例"、向即将退出的旧实例申请而被拒，relaunch 失败
+	App* self = get();
+	if (self && self->isFirstInstance && self->hSingleInstanceMutex)
+	{
+		ReleaseMutex(self->hSingleInstanceMutex);
+		CloseHandle(self->hSingleInstanceMutex);
+		self->hSingleInstanceMutex = nullptr;
+		self->isFirstInstance = false;
+		self->singleInstanceRunning = false; // 停掉接待管道 server，避免它把新实例当第二实例拒绝
+	}
+
+	// 新实例 exe：默认当前进程自身
+	std::wstring exe = relaunchExe_.empty() ? currentExePath() : relaunchExe_;
+	if (exe.empty()) return; // 拿不到路径就放弃（极端情况）
+
+	std::wstring cmd = quoteArg(exe);
+	for (auto& a : relaunchArgs_) { cmd.push_back(L' '); cmd += quoteArg(a); }
+
+	STARTUPINFOW si{};
+	si.cb = sizeof(si);
+	PROCESS_INFORMATION pi{};
+	std::vector<wchar_t> buf(cmd.begin(), cmd.end());
+	buf.push_back(L'\0');
+	// 在当前进程仍存活时拉起新实例；之后旧实例才随 PostQuitMessage 退出，新实例独立存活
+	CreateProcessW(nullptr, buf.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi);
+	if (pi.hProcess) CloseHandle(pi.hProcess);
+	if (pi.hThread) CloseHandle(pi.hThread);
 }
 
 void App::setPackagePath(std::filesystem::path path)

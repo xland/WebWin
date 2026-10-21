@@ -14,7 +14,7 @@
 | 5 | 使用系统对话框 | **已落地**：`dialog.openPath()` / `savePath()` / `msgBox()` / `itemInFolder()`（见 `../doc/dialog.md`）。对话框模态到当前窗口 |
 | 6 | 阻止应用锁屏 | 阻止系统进入锁屏/休眠。**已落地**：`os.preventSleep()` / `os.stopPreventSleep()` |
 | 7 | 访问系统进程 | |
-| 8 | 启动子进程（与子进程通信） | **部分落地**：`Process.spawn(file, args?, options?)` 启动子进程，返回进程对象；stdout / stderr / exit 三个事件推回**发起 spawn 的那个文档**（见 `../doc/process.md`）。**stdin 仍待做** —— 目前子进程的 stdin 是空设备（NUL）；`env` 选项、`proc.kill()` 也待做 |
+| 8 | 启动子进程（与子进程通信） | **已落地**：`Process.spawn(file, args?, options?)` 启动子进程，返回进程对象；stdout / stderr / exit 三个事件推回**发起 spawn 的那个文档**（见 `../doc/process.md`）；stdin 已可写（`proc.write()` / `proc.closeStdin()`）；`proc.kill()` 已可主动终止；`Process.getArg()` 取**当前应用**的命令行参数（首元素为 exe 路径）。`env` 选项仍待做 |
 | 9 | 启动 HTTP 服务 | **发请求已落地**：`Http.fetch()`（走 C++ WinHTTP，**无 CORS 限制**，见 `../doc/http.md`）。**起服务待做**：`Http.createServer()` 已登记为 T014 |
 | 10 | 访问屏幕信息 | 显示器、分辨率、DPI 等。**已落地**：`display.getAll()` / `getPrimary()` / `getByPos()` / `getByRect()` / `getColor()` / `getImage()` + `display-added` / `display-removed`（见 `../doc/display.md`）。DPI 变化事件待定（T012） |
 | 11 | 访问版本信息 | **系统版本 / 框架版本 / 应用版本** 三类。**系统版本已落地**：`os.getVersion()` |
@@ -26,6 +26,7 @@
 | 17 | 系统凭据（凭据管理器） | **已落地**：`os.credWrite(key, value)` / `os.credRead(key)`（不存在返回 `null`）/ `os.credDelete(key)`（幂等）/ `os.credList(prefix?)`（只给 key，见 `../doc/os.md`）。一律"普通凭据"，存在**本机**这一栏：不漫游、只对当前用户可见 |
 | 18 | 注册表 | **已落地**：`regedit.get(key, name?)`（不存在返回 `null`）/ `regedit.set(key, name, value)`（键不存在时自动逐层建）/ `regedit.deleteKey(key)`（递归）/ `regedit.listKeys(key)` / `regedit.listValues(key)`（见 `../doc/regedit.md`）。键路径写成一整条，跟 reg.exe 一样；根键简写与全名都认。**写 HKLM 需要管理员** |
 | 19 | 网络 | **部分落地**：`Net.getAddress()` 取本机各网卡的名字 / MAC / IP 地址（静态方法，原 `os.getIpAddr()` 迁来并改名，见 `../doc/net.md`）。已过滤未启用网卡与回环地址。**待实现**：联网状态变化事件、本机端口占用查询 |
+| 20 | 应用退出 / 重启控制 | **已落地**：`app.exit()` 立即退出；`app.quit()` 优雅退出（`before-quit` → 关所有窗口 → `will-quit` → 退出，两个事件里调 `app.stopQuit()` 可中断，见 `../doc/app.md`）；`app.relaunch()` 登记重启（退出前拉起新实例，单实例应用也能正确重启） |
 
 ## 规划中的能力（已列入待办）
 

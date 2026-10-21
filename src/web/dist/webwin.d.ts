@@ -182,6 +182,27 @@ declare class App extends Ipc {
      * 在事件之外调用无效（没有正在进行的退出流程）。
      */
     stopQuit(): Promise<void>;
+    /**
+     * 登记一次重启请求（**不会立刻退出**）。要真正重启，紧接着调用 `app.exit()`
+     * （或 `app.quit()`）触发退出即可 —— 新实例会在旧实例退出前被拉起。
+     *
+     * `args` 是新实例的命令行参数（**不含** exe 自身路径，框架会自己补上）；
+     * 通常塞个 `--relaunch` 之类的标记，方便新实例识别"我是被重启出来的"。
+     * 单实例应用也能正确重启：旧实例退出前会先释放单例互斥锁，新实例得以拿到锁成为第一实例。
+     *
+     * ```ts
+     * const args = await Process.getArg();        // [exe, ...真正参数]
+     * app.relaunch({ args: args.slice(1).concat(['--relaunch']) });
+     * app.exit();
+     * ```
+     *
+     * @param options.args 新实例的命令行参数数组
+     * @param options.execPath 新实例的可执行文件路径；缺省为当前 exe 自身
+     */
+    relaunch(options?: {
+        args?: string[];
+        execPath?: string;
+    }): Promise<void>;
     /** package.json 所在目录（命令行 `--path=...` 指定的那个，否则 exe 同目录） */
     getAppPath(): Promise<string>;
     /** exe 所在目录 */

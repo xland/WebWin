@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <vector>
 #include <functional>
 #include <string>
 #include <filesystem>
@@ -119,5 +120,15 @@ private:
 	enum class QuitPhase { Idle, BeforeQuit, Closing, WillQuit };
 	static inline QuitPhase quitPhase{ QuitPhase::Idle };
 	static inline bool quitPrevented{ false };
+
+	// ---- 重启（app.relaunch / 退出前 spawn 新实例）----
+	static inline bool relaunchPending_{ false };
+	static inline std::wstring relaunchExe_;               // 新实例 exe；空 = 当前进程自身
+	static inline std::vector<std::wstring> relaunchArgs_;  // 新实例的命令行参数（不含 exe 自身）
+	// 解析 app.relaunch 的参数，登记一次重启请求（不立即执行，等退出时真正拉起）
+	static void relaunch(const JsonObject& params, JsonObject& result);
+	// 真正退出前调用：若登记过重启，先释放单例互斥锁再 spawn 新实例，
+	// 保证旧实例退出后新实例能拿到锁成为第一实例（否则新实例会被当成第二实例拒绝）
+	static void performRelaunch();
 };
 
