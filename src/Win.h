@@ -2,6 +2,7 @@
 #include <memory>
 #include <wrl.h>
 #include <string>
+#include <vector>
 #include <Windows.h>
 #include <WebView2.h>
 #include <winrt/Windows.Data.Json.h>
@@ -86,6 +87,10 @@ private:
 	// false 时框架接管：关掉默认框，改弹 Windows 原生框（见 Page::onScriptDialog）
 	bool defaultJsDialog{ false };
 	bool webviewConfigured{ false }; // 是否读到了 webview 配置对象
+	// 允许访问本地能力的远程域名（allowRemoteSdk 配置）：字符串或字符串数组，
+	// 每个元素是一个域名模式，支持 * 通配符（见 Page::isOriginAuthorized）。
+	// 空 = 只允许应用自身 origin（默认行为）
+	std::vector<std::wstring> allowRemoteSdk;
 	int menuId{ -1 };  // 窗口右键菜单的菜单 id；-1 = 没挂（走浏览器默认的右键菜单）
 	// 是否正在系统原生的移动 / 缩放循环里（WM_ENTERSIZEMOVE ~ WM_EXITSIZEMOVE）。
 	// 循环期间每帧都有 WM_SIZE，重活（重算 hover、通知 WebView 父窗口位移）必须让路

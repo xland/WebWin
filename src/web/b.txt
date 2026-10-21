@@ -3,9 +3,9 @@ npm notice run npm run build:js && npm run build:html && npm run types
 npm notice run webwin-web@0.0.1 build:js
 npm notice run esbuild src/WebWin.ts --bundle --minify --format=iife --target=es2020 --outfile=dist/webwin.js
 
-  dist\webwin.js  24.0kb
+  dist\webwin.js  23.8kb
 
-Done in 5ms
+Done in 24ms
 npm notice run webwin-web@0.0.1 build:html
 npm notice run node script/minify-html.mjs
 default.html -> dist/default.html (315 -> 274 bytes)

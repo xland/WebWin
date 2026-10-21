@@ -60,33 +60,6 @@ namespace {
 		appHwnd = CreateWindowEx(0, wc.lpszClassName, nullptr, 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
 	}
 
-	// 当前进程的完整 exe 路径（含文件名）
-	std::wstring currentExePath()
-	{
-		std::wstring path(65536, L'\0');
-		auto len = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
-		if (len == 0) return {};
-		path.resize(len);
-		return path;
-	}
-
-	// 按 MSVCRT 规则给命令行参数加引号（与 Process::quote 同款；文件名一律加引号）
-	std::wstring quoteArg(const std::wstring& text)
-	{
-		if (!text.empty() && text.find_first_of(L" \t\"") == std::wstring::npos) return text;
-		std::wstring out{ L"\"" };
-		for (size_t i = 0; i < text.size(); ++i)
-		{
-			auto slashes = size_t{ 0 };
-			while (i < text.size() && text[i] == L'\\') { ++i; ++slashes; }
-			if (i == text.size()) { out.append(slashes * 2, L'\\'); break; }
-			if (text[i] == L'"') out.append(slashes * 2 + 1, L'\\');
-			else out.append(slashes, L'\\');
-			out.push_back(text[i]);
-		}
-		out.push_back(L'"');
-		return out;
-	}
 }
 
 App::App()
@@ -271,11 +244,11 @@ void App::performRelaunch()
 	}
 
 	// 新实例 exe：默认当前进程自身
-	std::wstring exe = relaunchExe_.empty() ? currentExePath() : relaunchExe_;
+	std::wstring exe = relaunchExe_.empty() ? Util::getExePath().wstring() : relaunchExe_;
 	if (exe.empty()) return; // 拿不到路径就放弃（极端情况）
 
-	std::wstring cmd = quoteArg(exe);
-	for (auto& a : relaunchArgs_) { cmd.push_back(L' '); cmd += quoteArg(a); }
+	std::wstring cmd = Util::quoteArg(exe);
+	for (auto& a : relaunchArgs_) { cmd.push_back(L' '); cmd += Util::quoteArg(a); }
 
 	STARTUPINFOW si{};
 	si.cb = sizeof(si);
@@ -459,10 +432,9 @@ void App::initSingleInstance()
 bool App::requestSecondInstanceFromFirst()
 {
 	// 收集本进程的启动参数与工作目录，发给第一实例（同 Electron 的 second-instance）
-	int argc = 0;
-	auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+	auto argv = Util::getCommandLineArgs();
 	JsonArray argvJson{ nullptr };
-	if (argv) for (int i = 0; i < argc; ++i) argvJson.Append(JsonValue::CreateStringValue(argv[i]));
+	for (auto& a : argv) argvJson.Append(JsonValue::CreateStringValue(a));
 
 	wchar_t cwd[MAX_PATH]{};
 	GetCurrentDirectoryW(MAX_PATH, cwd);
@@ -470,7 +442,6 @@ bool App::requestSecondInstanceFromFirst()
 	JsonObject req;
 	req.SetNamedValue(L"argv", argvJson);
 	req.SetNamedValue(L"cwd", JsonValue::CreateStringValue(cwd));
-	if (argv) LocalFree(argv);
 
 	// 命名管道名 = \\.\pipe\ + 互斥量后缀。CallNamedPipe 一步完成 连接→写→读→断开，
 	// 最后一个参数是整体超时（毫秒）。第一实例无响应就当拒绝 —— 宁可杀掉也不允许多开

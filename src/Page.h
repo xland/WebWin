@@ -56,7 +56,7 @@ private:
 	/** 把窗口事件推给本页面里的某个文档；frame 为空表示推给顶级文档 */
 	void emitEvent(const std::wstring& name, int winId, const JsonObject& payload, ICoreWebView2Frame2* frame = nullptr);
 	std::wstring getContentType(const std::wstring& fileName);
-	/** 校验消息来源：仅应用自身 origin 放行；结果按 origin 缓存，避免重复判定 */
+	/** 校验消息来源：应用自身 origin、或 allowRemoteSdk 配置的远程域名放行；结果按 origin 缓存 */
 	bool isOriginAuthorized(const std::wstring& sourceUrl);
 	/** 处理一条上行消息。frame 是发消息的文档：iframe 传它自己，顶级文档传 nullptr */
 	void handleMessage(const wchar_t* json, ICoreWebView2Frame2* frame);

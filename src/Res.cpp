@@ -119,20 +119,6 @@ namespace
 		return path;
 	}
 
-	/** 自身 exe 路径。超长时循环放大缓冲 —— MAX_PATH 之外的路径是存在的 */
-	std::filesystem::path selfExe()
-	{
-		std::wstring buf(MAX_PATH, L'\0');
-		for (;;)
-		{
-			DWORD n = GetModuleFileNameW(nullptr, buf.data(), static_cast<DWORD>(buf.size()));
-			if (n == 0) return {};
-			if (n < buf.size()) { buf.resize(n); break; }
-			buf.resize(buf.size() * 2);
-		}
-		return std::filesystem::path(buf);
-	}
-
 	/** 两个路径是否指同一个文件（不区分大小写 + 规范化，绕开 .. 和 8.3 短名） */
 	bool sameFile(const std::filesystem::path& a, const std::filesystem::path& b)
 	{
@@ -157,7 +143,7 @@ namespace
 			error = L"目标 exe 不存在或不是文件：" + out.wstring();
 			return false;
 		}
-		if (forWrite && sameFile(out, selfExe()))
+		if (forWrite && sameFile(out, Util::getExePath()))
 		{
 			error = L"不能修改正在运行的这个 exe 自身：Windows 以映像方式映射它，"
 			        L"BeginUpdateResource 打开写入会被拒（ERROR_SHARING_VIOLATION）。"

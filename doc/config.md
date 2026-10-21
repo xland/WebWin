@@ -126,7 +126,7 @@ WebWin 的所有配置写在 `package.json` 里，集中在顶层对象的 `"web
 | ----------------- | ------ | ------- | --------------------------------------------------- |
 | `path`            | 字符串 | `.`     | 页面来源：一个**目录**或一个 **URL 地址**           |
 | `allowWindowOpen` | 布尔   | `true`  | 是否允许页面中打开新窗口                            |
-| `allowRemoteSdk`  | 布尔   | `false` | 是否允许把 SDK 注入到**非应用自身来源**的页面，见下 |
+| `allowRemoteSdk`  | 字符串 / 字符串[] | 无 | 允许哪些**远程域名**的页面访问本地能力（支持 `*` 通配符），见下 |
 | `defaultJsDialog` | 布尔   | `false` | 是否用 WebView2 自带的 JS 对话框，见下             |
 
 `path` 的两种写法：
@@ -148,16 +148,35 @@ WebWin 的所有配置写在 `package.json` 里，集中在顶层对象的 `"web
 
 ## 关于 `allowRemoteSdk`
 
-框架会把 `WebWin` SDK 注入到窗口中**每一个**页面文档，包括页面后来跳转到的站点、
-以及第三方 iframe。这些页面拿到 SDK 就等于拿到了文件、进程等系统能力，风险不小。
+框架会把 SDK 注入到窗口中**每一个**文档（含页面后来跳转到的站点、第三方 iframe）。
+但"页面里能不能真正调用本地能力（文件 / 进程 / 注册表 …）"由 **C++ 侧按消息来源（origin）校验**
+这一道闸门决定 —— 这才是本地能力的唯一授权点，JS 层不做来源自检。
 
-因此默认行为是：**只把 SDK 装到应用自身的页面**（即 `path` 指定的来源），
-其他来源的文档一律不装。把 `allowRemoteSdk` 设为 `true` 则取消这个限制，
-不做任何来源判断地注入。
+默认（`allowRemoteSdk` 不配、或配 `false`）：**只有应用自身的页面**（`path` 指定的来源）能访问
+本地能力；其它来源的页面即便装了 SDK，发出的调用也会被 C++ 直接丢弃。
+
+`allowRemoteSdk` 设为一个**域名**或**域名数组**后，凡匹配这些域名的远程页面也能访问本地能力：
 
 ```json
-"webview": { "path": ".", "allowRemoteSdk": false }
+"webview": {
+  "path": ".",
+  "allowRemoteSdk": "api.example.com"          // 单个域名
+  // 或 "allowRemoteSdk": ["api.example.com", "*.cdn.net"]
+}
 ```
+
+### 通配符
+
+域名模式支持 `*` 通配符，匹配任意字符序列（含空、含点），且**整体锚定**（整串必须匹配完）：
+
+- `*.example.com` 匹配 `foo.example.com`、`a.b.example.com`，**也匹配裸域名** `example.com`
+- `example.*` 匹配 `example.com`、`example.org`
+- `*` 单独一个：匹配任意 host（等于放开所有来源，慎用）
+
+匹配**大小写不敏感**。只比 host，不比 scheme / 端口 —— 同一个域名的 `http` 与 `https` 都算匹配。
+
+> 这是给"应用自身页面里嵌了可信远程站点、需要它调本地能力"的场景用的。放行后该域名的
+> 任意页面（含被 XSS 攻陷的页面）都能调本地能力，请只填你真正信任、且尽量具体的域名。
 
 ## 关于 `defaultJsDialog`
 

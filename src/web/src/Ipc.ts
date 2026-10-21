@@ -133,7 +133,8 @@ export function installChannel(): WebWinConfig | null {
 		chrome?: { webview?: WebViewChannel };
 		__webwinConfig__?: WebWinConfig;
 	};
-	// 装不上就说明"当前文档不是应用自己的页面"：通常是来源没对上。
+	// SDK 会装到**每一个**文档（含远程页面 / 第三方 iframe）。一个页面能不能用本地能力，
+	// 由 C++ 侧按消息来源（origin）校验决定（见 `app` 的来源校验），这里不做来源自检。
 	// 静默失败最难排查（页面里只会表现为 win 未定义），所以每条分支都留一句警告
 	const warn = (reason: string, detail?: unknown) => {
 		console.warn(`[WebWin] SDK 未安装：${reason}`, detail ?? '');
@@ -144,15 +145,6 @@ export function installChannel(): WebWinConfig | null {
 	if (!ch) { warn('不在 WebView2 环境中（chrome.webview 缺失）'); return null; }
 	const config = w.__webwinConfig__;
 	if (!config) { warn('window.__webwinConfig__ 缺失（C++ 未注入配置）', location.href); return null; }
-
-	// 只在应用自身的页面安装 SDK（来源不符直接放弃，不暴露任何本地能力）。
-	// 真正的来源授权闸门在 C++ 侧（onMsgReceived 按 get_Source() 校验 origin），这里只是同源自检
-	const origin = location.origin;
-	const isAppOrigin = origin === config.origin || origin === 'null' || origin === '' || origin === 'file://';
-	if (!isAppOrigin) {
-		warn('页面来源与配置不符', { 页面来源: origin, 配置来源: config.origin });
-		return null;
-	}
 
 	channel = ch;
 	ch.addEventListener('message', (event) => {

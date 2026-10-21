@@ -151,6 +151,20 @@ void Win::readConfig(const JsonObject& config)
 		webviewPath = Json::getString(webview, L"path", webviewPath);
 		allowWindowOpen = Json::getBool(webview, L"allowWindowOpen", allowWindowOpen);
 		defaultJsDialog = Json::getBool(webview, L"defaultJsDialog", defaultJsDialog);
+		// allowRemoteSdk：可为字符串或字符串数组，每个元素是一个域名模式（支持 * 通配符）。
+		// 设了之后，凡匹配这些模式的远程页面也能访问本地能力（C++ 来源校验放行）。
+		// false / 缺省 视为空（只允许应用自身 origin）
+		auto ars = Json::getArray(webview, L"allowRemoteSdk");
+		if (ars)
+		{
+			for (auto item : ars)
+				if (item.ValueType() == JsonValueType::String) allowRemoteSdk.push_back(item.GetString().c_str());
+		}
+		else
+		{
+			auto single = Json::getString(webview, L"allowRemoteSdk", L"");
+			if (!single.empty()) allowRemoteSdk.push_back(single);
+		}
 	}
 }
 

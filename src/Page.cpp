@@ -1,5 +1,6 @@
 #include <shlobj.h>
 #include <shlwapi.h>
+#include <algorithm>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -24,18 +25,6 @@
 #include "Tray.h"
 
 namespace {
-	// 取 exe 内嵌的 RCDATA 资源（src/web/dist 下的产物，见 Res.rc）
-	std::string loadTextResource(const wchar_t* name)
-	{
-		auto hRes = FindResource(nullptr, name, RT_RCDATA);
-		if (!hRes) return {};
-		auto hData = LoadResource(nullptr, hRes);
-		if (!hData) return {};
-		auto data = static_cast<const char*>(LockResource(hData));
-		auto size = SizeofResource(nullptr, hRes);
-		return { data, size };
-	}
-
 	// 事件回调给的是 ICoreWebView2Frame*，收发消息要用 ICoreWebView2Frame2*。
 	// 同一个 COM 对象对同一个 IID 的 QueryInterface 结果恒等，
 	// 所以可以用 Frame2 的指针值来认定"是不是同一个 iframe"
@@ -56,6 +45,54 @@ namespace {
 		auto hostEnd = url.find(L'/', hostStart);
 		if (hostEnd == std::wstring::npos) hostEnd = url.length();
 		return url.substr(0, hostEnd);
+	}
+
+	// 从 origin（scheme://host:port）取出 host（去掉 scheme、路径与端口），供域名模式匹配
+	std::wstring extractHost(const std::wstring& origin)
+	{
+		auto schemeEnd = origin.find(L"://");
+		auto start = (schemeEnd == std::wstring::npos) ? 0 : schemeEnd + 3;
+		auto end = start;
+		while (end < origin.size() && origin[end] != L'/' && origin[end] != L':') ++end;
+		return origin.substr(start, end - start);
+	}
+
+	// 通配符匹配：* 匹配任意字符序列（含空、含点），整体锚定（整串必须匹配完）。
+	// 例如 *.example.com 匹配 foo.example.com / a.b.example.com；example.* 匹配 example.com / example.org
+	bool wildcardMatch(const std::wstring& s, const std::wstring& p)
+	{
+		size_t si = 0, pi = 0;
+		size_t star = std::wstring::npos;
+		size_t mark = 0;
+		while (si < s.size())
+		{
+			if (pi < p.size() && (p[pi] == s[si] || p[pi] == L'*'))
+			{
+				if (p[pi] == L'*') { star = pi; mark = si; pi++; }
+				else { si++; pi++; }
+			}
+			else if (star != std::wstring::npos)
+			{
+				pi = star + 1;
+				mark++;
+				si = mark;
+			}
+			else return false;
+		}
+		while (pi < p.size() && p[pi] == L'*') pi++;
+		return pi == p.size();
+	}
+
+	// host 是否匹配一个域名模式（大小写不敏感）。
+	// 约定：以 "*." 开头的模式同时匹配裸域名（apex），即 *.example.com 也匹配 example.com
+	bool hostMatchesPattern(const std::wstring& host, const std::wstring& pattern)
+	{
+		auto lower = [](wchar_t c) { return (c >= L'A' && c <= L'Z') ? (c - L'A' + L'a') : c; };
+		std::wstring h = host, p = pattern;
+		std::transform(h.begin(), h.end(), h.begin(), lower);
+		std::transform(p.begin(), p.end(), p.begin(), lower);
+		if (p.size() >= 2 && p[0] == L'*' && p[1] == L'.' && h == p.substr(2)) return true;
+		return wildcardMatch(h, p);
 	}
 
 	/**
@@ -142,6 +179,10 @@ namespace {
 
 Page::Page(Win* win, const ComPtr<ICoreWebView2>& webview) :win{ win }, webview{ webview }
 {
+    // 来源校验基准：应用自身 origin（目录映射为 https://{id}，URL 取其 origin）。
+    // 必须在消息到来前备好，否则 isOriginAuthorized 拿空基准会把自家页面也拒掉
+    appOrigin_ = win->getPageOrigin();
+
     // 用带 RequestSourceKinds 的新接口：老的 AddWebResourceRequestedFilter 已废弃，
     // 而且它只对主框架和同源 iframe 生效，其余 iframe 的请求拦不到
     ComPtr<ICoreWebView2_22> webview22;
@@ -201,7 +242,7 @@ Page::Page(Win* win, const ComPtr<ICoreWebView2>& webview) :win{ win }, webview{
 
 void Page::injectSdk()
 {
-	auto js = loadTextResource(L"webwin.js");
+	auto js = Util::loadRcdata(L"webwin.js");
 	if (js.empty())
 	{
 		// exe 里没有内嵌 SDK：忘了在 src/web 跑 npm run build:all，或资源没编进 exe。
@@ -264,7 +305,7 @@ void Page::loadPage()
 	// 走到这里说明配置不可用：没读到 package.json / webwin / window / webview，
 	// 或者 path 目录下没有 index.html —— 显示内置默认页面
 	//（src/web/default.html 编译压缩后内嵌为 RCDATA 资源，见 Res.rc）
-	auto html = Util::utf8ToWide(loadTextResource(L"default.html"));
+	auto html = Util::utf8ToWide(Util::loadRcdata(L"default.html"));
 	webview->NavigateToString(html.empty() ? L"<html><body>no config</body></html>" : html.c_str());
 }
 
@@ -306,9 +347,9 @@ void Page::emitEvent(const std::wstring& name, int winId, const JsonObject& payl
 
 HRESULT Page::onMsgReceived(ICoreWebView2* webview, ICoreWebView2WebMessageReceivedEventArgs* args)
 {
-	// 来源校验：非应用自身 origin 的消息直接丢弃，不路由到任何能力域。
-	// 纵深防御 —— JS 层 SDK 已按 origin 决定是否激活，这里再挡一道；
-	// 即便 JS 被绕过，C++ 也不会执行陌生来源的命令
+	// 来源校验：仅应用自身 origin、以及 allowRemoteSdk 配置的远程域名放行，其余直接丢弃，
+	// 不路由到任何能力域。这是本地能力的**唯一**闸门 —— JS 层不再做来源自检（SDK 装到每个文档），
+	// 一个页面能不能用本地能力完全由这里按 origin 决定；陌生来源的命令一律不执行
 	PWSTR sourceRaw = nullptr;
 	if (SUCCEEDED(args->get_Source(&sourceRaw)) && sourceRaw)
 	{
@@ -379,7 +420,17 @@ bool Page::isOriginAuthorized(const std::wstring& sourceUrl)
 	auto origin = extractOrigin(sourceUrl);
 	auto it = originAuthCache_.find(origin);
 	if (it != originAuthCache_.end()) return it->second; // 同源消息复用判定结果
+
 	bool ok = (origin == appOrigin_);
+	if (!ok)
+	{
+		// 允许远程域名（allowRemoteSdk）：取 host 与各域名模式做通配符匹配
+		auto host = extractHost(origin);
+		for (auto& pat : win->allowRemoteSdk)
+		{
+			if (hostMatchesPattern(host, pat)) { ok = true; break; }
+		}
+	}
 	originAuthCache_[origin] = ok;
 	return ok;
 }

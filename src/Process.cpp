@@ -18,7 +18,6 @@
 #include "Json.h"
 #include "Util.h"
 #include "Win.h"
-#include <shellapi.h> // CommandLineToArgvW / LocalFree：须在 Windows.h（经上面头文件引入）之后
 
 namespace
 {
@@ -74,36 +73,6 @@ namespace
 	std::mutex mtx;
 	int lastId{ 0 };
 	std::map<int, Child> children;
-
-	/**
-	 * 按 MSVCRT 解析 argv 的规则给一段文本加引号：
-	 * 没有空格 / 制表符 / 引号且不为空就原样返回；否则加引号，并转义里面的引号与反斜杠
-	 * —— 反斜杠只在"紧跟一个引号"时才加倍，末尾的反斜杠也要加倍，
-	 * 不加的话它会把后面那个收尾引号一起转义掉
-	 *
-	 * 文件名一律加引号：Program Files 这类带空格的路径不引会被拆成两段
-	 */
-	std::wstring quote(const std::wstring& text)
-	{
-		if (!text.empty() && text.find_first_of(L" \t\"") == std::wstring::npos) return text;
-
-		std::wstring out{ L"\"" };
-		for (size_t i = 0; i < text.size(); ++i)
-		{
-			auto slashes = size_t{ 0 };
-			while (i < text.size() && text[i] == L'\\') { ++i; ++slashes; }
-			if (i == text.size())
-			{
-				out.append(slashes * 2, L'\\'); // 末尾的反斜杠：后面要跟引号，加倍
-				break;
-			}
-			if (text[i] == L'"') out.append(slashes * 2 + 1, L'\\');
-			else out.append(slashes, L'\\');
-			out.push_back(text[i]);
-		}
-		out.push_back(L'"');
-		return out;
-	}
 
 	/** 末尾"可能被切断的 UTF-8 序列"的字节数（0..3）：留着跟下一段拼起来再解 */
 	size_t trailingPartial(const std::string& text)
@@ -382,16 +351,14 @@ void Process::getArg(JsonObject& result)
 {
 	// 当前进程的命令行参数，用 Windows 自己的解析器（正确还原引号 / 转义），
 	// 与 App::requestSecondInstanceFromFirst 同款取法
-	int argc = 0;
-	auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-	if (!argv)
+	auto argv = Util::getCommandLineArgs();
+	if (argv.empty())
 	{
 		Json::setError(result, L"process.getArgFailed", L"无法解析命令行：" + Util::winErr(GetLastError()));
 		return;
 	}
 	JsonArray arr;
-	for (int i = 0; i < argc; ++i) arr.Append(JsonValue::CreateStringValue(argv[i]));
-	LocalFree(argv);
+	for (auto& a : argv) arr.Append(JsonValue::CreateStringValue(a));
 	Json::setOk(result);
 	result.SetNamedValue(L"data", arr);
 }
@@ -417,13 +384,13 @@ void Process::spawn(const JsonObject& params, Page* page, JsonObject& result, IC
 	auto detached = options ? Json::getBool(options, L"detached", false) : false;
 
 	// 命令行 = 文件名 + 参数，逐个按规则加引号
-	std::wstring cmd = quote(file);
+	std::wstring cmd = Util::quoteArg(file);
 	auto args = Json::getArray(params, L"args");
 	if (args) for (auto item : args)
 	{
 		if (item.ValueType() != JsonValueType::String) continue; // 非字符串参数跳过
 		cmd.push_back(L' ');
-		cmd += quote(item.GetString().c_str());
+		cmd += Util::quoteArg(item.GetString().c_str());
 	}
 
 	// 子进程的工作目录。相对路径以应用基准目录为底 —— 框架里没有 cwd 概念
