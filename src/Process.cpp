@@ -43,9 +43,11 @@ namespace
 		HANDLE errRead{ nullptr };   // 读 stderr 的一端
 		HANDLE outPump{ nullptr };   // 泵线程句柄：退出前等它把最后一段推完
 		HANDLE errPump{ nullptr };
+		HANDLE inWrite{ nullptr };   // 父进程持有的 stdin 写端（子进程退出后由 waitProc 关）
 		Page* page{ nullptr };       // 事件推回给谁；为空 = 页面已销毁
 		ComPtr<ICoreWebView2Frame2> frame;
 		bool detached{ false };
+		bool killed{ false };        // 被框架 / 调用方主动终止（kill 或页面销毁），exit 事件据此带 killed:true
 	};
 
 	/** 泵线程的入参；线程函数里 delete */
@@ -64,6 +66,8 @@ namespace
 		HANDLE thread;
 		HANDLE outPump;
 		HANDLE errPump;
+		HANDLE inWrite;
+		bool killed;
 	};
 
 	std::mutex mtx;
@@ -236,6 +240,8 @@ namespace
 		auto process = arg->process;
 		auto thread = arg->thread;
 		HANDLE pumps[2] = { arg->outPump, arg->errPump };
+		auto inWrite = arg->inWrite;   // 先拷出来再 delete arg
+		auto killed = arg->killed;
 		delete arg;
 
 		WaitForSingleObject(process, INFINITE);
@@ -249,11 +255,13 @@ namespace
 		for (auto handle : pumps) if (handle) waiting[count++] = handle;
 		if (count) WaitForMultipleObjects(count, waiting, TRUE, PUMP_WAIT_MS);
 
-		emit(id, EVENT_EXIT, [code](JsonObject& payload) {
+		emit(id, EVENT_EXIT, [code, killed](JsonObject& payload) {
 			payload.SetNamedValue(L"code", JsonValue::CreateNumberValue(static_cast<double>(code)));
+			payload.SetNamedValue(L"killed", JsonValue::CreateBooleanValue(killed));
 		}, true);
 
 		for (auto handle : pumps) if (handle) CloseHandle(handle);
+		if (inWrite) CloseHandle(inWrite); // 父进程写端：子进程退出后回收
 		CloseHandle(thread);
 		CloseHandle(process);
 		return 0;
@@ -282,24 +290,107 @@ namespace
 			if (it == children.end()) return; // 已被清理（页面销毁）：不必再等
 			child = it->second;
 		}
-		auto arg = new WaitArg{ id, child.process, child.thread, child.outPump, child.errPump };
+		auto arg = new WaitArg{ id, child.process, child.thread, child.outPump, child.errPump, child.inWrite, child.killed };
 		auto handle = reinterpret_cast<HANDLE>(_beginthreadex(nullptr, 0, waitProc, arg, 0, nullptr));
 		if (!handle) delete arg; // 开不了线程：句柄只能留到进程结束（极端情况，不管）
 	}
 }
 
+void Process::write(const JsonObject& params, JsonObject& result)
+{
+	auto id = Json::getInt(params, L"id", 0);
+	auto data = Json::getString(params, L"data", L"");
+	auto encoding = Json::getString(params, L"encoding", L"utf8");
+
+	Child child;
+	{
+		std::lock_guard<std::mutex> lock(mtx);
+		auto it = children.find(id);
+		if (it == children.end()) { Json::setError(result, L"process.gone", L"子进程不存在或已退出：" + std::to_wstring(id)); return; }
+		child = it->second;
+	}
+	if (!child.inWrite)
+	{
+		Json::setError(result, L"process.gone", L"子进程 stdin 已关闭");
+		return;
+	}
+
+	std::string bytes;
+	if (encoding == L"base64")
+	{
+		bytes = Util::fromBase64(Util::wideToUtf8(data));
+		if (bytes.empty() && !data.empty())
+		{
+			Json::setError(result, L"process.encodeInvalid", L"data 不是合法的 base64");
+			return;
+		}
+	}
+	else // utf8：文本按 UTF-8 转字节
+	{
+		bytes = Util::wideToUtf8(data);
+	}
+
+	DWORD written = 0;
+	// 写入量小（页面下发的一段），同步 WriteFile 不会长时间阻塞 UI 线程；
+	// 今后要支持大块流式写入再改重叠 IO
+	auto ok = WriteFile(child.inWrite, bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr);
+	if (!ok)
+	{
+		Json::setError(result, L"process.writeFailed", L"写入 stdin 失败：" + Util::winErr(GetLastError()));
+		return;
+	}
+	Json::setOk(result);
+}
+
+void Process::closeStdin(const JsonObject& params, JsonObject& result)
+{
+	auto id = Json::getInt(params, L"id", 0);
+	std::lock_guard<std::mutex> lock(mtx);
+	auto it = children.find(id);
+	if (it == children.end()) { Json::setError(result, L"process.gone", L"子进程不存在或已退出：" + std::to_wstring(id)); return; }
+	if (it->second.inWrite)
+	{
+		CloseHandle(it->second.inWrite); // 关掉父进程写端 → 子进程读到 EOF
+		it->second.inWrite = nullptr;
+	}
+	Json::setOk(result);
+}
+
+void Process::kill(const JsonObject& params, JsonObject& result)
+{
+	auto id = Json::getInt(params, L"id", 0);
+	auto force = Json::getBool(params, L"force", true); // Windows 上 force 与否都是 TerminateProcess 强杀
+
+	Child child;
+	{
+		std::lock_guard<std::mutex> lock(mtx);
+		auto it = children.find(id);
+		if (it == children.end()) { Json::setError(result, L"process.gone", L"子进程不存在或已退出：" + std::to_wstring(id)); return; }
+		child = it->second;
+		it->second.killed = true; // 标记：exit 事件据此带 killed:true
+	}
+	if (!TerminateProcess(child.process, 1))
+	{
+		Json::setError(result, L"process.killFailed", L"终止子进程失败：" + Util::winErr(GetLastError()));
+		return;
+	}
+	Json::setOk(result);
+}
+
 void Process::handleApi(const std::wstring& method, const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
 {
-	// v1 只有一个方法：静态方法 spawn。事件不在这里订阅 ——
-	// C++ 建进程时就替发起方订好了，见 spawn 里的说明
+	// 事件不在这里订阅 —— C++ 建进程时就替发起方订好了，见 spawn 里的说明
 	if (method == L"spawn") spawn(params, page, result, frame);
-	else Json::setError(result, L"unknown method: " + method);
+	else if (method == L"write") write(params, result);
+	else if (method == L"closeStdin") closeStdin(params, result);
+	else if (method == L"kill") kill(params, result);
+	else Json::setError(result, L"core.unknownMethod", L"unknown method: " + method);
 }
 
 void Process::spawn(const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame)
 {
 	auto file = Json::getString(params, L"file", L"");
-	if (file.empty()) { Json::setError(result, L"file 不能为空"); return; }
+	if (file.empty()) { Json::setError(result, L"process.invalidParam", L"file 不能为空"); return; }
 
 	auto options = Json::getObject(params, L"options");
 	auto hide = options ? Json::getBool(options, L"hide", true) : true;
@@ -326,54 +417,95 @@ void Process::spawn(const JsonObject& params, Page* page, JsonObject& result, IC
 	secAttr.bInheritHandle = TRUE; // 子进程的 std 句柄必须可继承
 
 	HANDLE outRead = nullptr, outWrite = nullptr, errRead = nullptr, errWrite = nullptr;
-	// 子进程的 stdin 给 NUL：GUI 进程自己没有控制台，不特别指定的话子进程拿到的是
-	// 无效句柄，有些控制台程序会直接报错。给个空设备最省心
-	auto nul = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-		&secAttr, OPEN_EXISTING, 0, nullptr);
+	HANDLE inRead = nullptr, inWrite = nullptr; // stdin：子进程读 inRead，父进程写 inWrite
 	auto pipesOk = CreatePipe(&outRead, &outWrite, &secAttr, 0)
-		&& CreatePipe(&errRead, &errWrite, &secAttr, 0);
-	if (nul == INVALID_HANDLE_VALUE || !pipesOk)
+		&& CreatePipe(&errRead, &errWrite, &secAttr, 0)
+		&& CreatePipe(&inRead, &inWrite, &secAttr, 0);
+	if (!pipesOk)
 	{
-		if (nul != INVALID_HANDLE_VALUE) CloseHandle(nul);
 		if (outRead) CloseHandle(outRead);
 		if (outWrite) CloseHandle(outWrite);
 		if (errRead) CloseHandle(errRead);
 		if (errWrite) CloseHandle(errWrite);
-		Json::setError(result, L"创建管道失败：" + Util::winErr(GetLastError()));
+		if (inRead) CloseHandle(inRead);
+		if (inWrite) CloseHandle(inWrite);
+		Json::setError(result, L"process.pipeFailed", L"创建管道失败：" + Util::winErr(GetLastError()));
 		return;
 	}
 	// 只有子进程那一端该被继承：读端留在父进程里。
 	// 否则子进程握着读端不放，管道永远等不到"写端全关"那一刻（收不到 EOF）
 	SetHandleInformation(outRead, HANDLE_FLAG_INHERIT, 0);
 	SetHandleInformation(errRead, HANDLE_FLAG_INHERIT, 0);
+	// stdin：子进程读 inRead（保持可继承），父进程写 inWrite（不继承，避免子进程也攥着写端）
+	SetHandleInformation(inWrite, HANDLE_FLAG_INHERIT, 0);
 
 	STARTUPINFOW startup{};
 	startup.cb = sizeof(startup);
 	startup.dwFlags = STARTF_USESTDHANDLES;
-	startup.hStdInput = nul;
+	startup.hStdInput = inRead; // 真实可写管道（父进程持 inWrite），替代原来的 NUL 空设备
 	startup.hStdOutput = outWrite;
 	startup.hStdError = errWrite;
+
+	// 环境块：默认"覆盖+继承"（inheritEnv 默认 true）。仅当传了 env 才构造；
+	// 否则走原行为（传 nullptr = 完整继承当前进程环境）
+	wchar_t* envBlock = nullptr;
+	std::wstring envBlockStr;
+	if (params.HasKey(L"env"))
+	{
+		auto inheritEnv = Json::getBool(params, L"inheritEnv", true);
+		std::map<std::wstring, std::wstring> envMap;
+		if (inheritEnv)
+		{
+			// 从当前进程环境块解析（GetEnvironmentStringsW 返回双 NUL 结尾的 block）
+			wchar_t* parentEnv = GetEnvironmentStringsW();
+			if (parentEnv)
+			{
+				for (wchar_t* p = parentEnv; *p; )
+				{
+					std::wstring entry(p);
+					auto eq = entry.find(L'=');
+					if (eq != std::wstring::npos) envMap[entry.substr(0, eq)] = entry.substr(eq + 1);
+					p += entry.size() + 1;
+				}
+				FreeEnvironmentStringsW(parentEnv);
+			}
+		}
+		// apply 开发者 env（覆盖同名）
+		auto envObj = Json::getObject(params, L"env");
+		auto view = envObj.GetView();
+		for (auto const& kv : view)
+		{
+			auto val = kv.Value();
+			if (val && val.ValueType() == winrt::Windows::Data::Json::JsonValueType::String)
+				envMap[std::wstring(kv.Key().c_str())] = std::wstring(val.GetString().c_str());
+		}
+		// 序列化为双 NUL 结尾的 UTF-16 环境块
+		for (auto& kv : envMap) { envBlockStr += kv.first; envBlockStr += L'='; envBlockStr += kv.second; envBlockStr.push_back(L'\0'); }
+		envBlockStr.push_back(L'\0');
+		envBlock = const_cast<wchar_t*>(envBlockStr.data());
+	}
 
 	PROCESS_INFORMATION procInfo{};
 	auto flags = DWORD{ 0 };
 	// GUI 应用拉起命令行工具时不该闪黑框 —— 要让用户看见就显式传 hide: false
 	if (hide) flags |= CREATE_NO_WINDOW;
+	if (envBlock) flags |= CREATE_UNICODE_ENVIRONMENT; // 传了 Unicode 环境块必须带这个 flag
 
 	std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end()); // CreateProcess 要求可写缓冲
 	cmdBuf.push_back(L'\0');
-	auto started = CreateProcessW(nullptr, cmdBuf.data(), nullptr, nullptr, TRUE, flags, nullptr,
+	auto started = CreateProcessW(nullptr, cmdBuf.data(), nullptr, nullptr, TRUE, flags, envBlock,
 		cwd.c_str(), &startup, &procInfo);
 
-	// 写端归子进程：父进程留着只会让"写端全关"永远不成立，同样收不到 EOF
+	// stdout / stderr 写端归子进程：父进程留着只会让"写端全关"永远不成立，同样收不到 EOF
 	CloseHandle(outWrite);
 	CloseHandle(errWrite);
-	CloseHandle(nul);
+	// inWrite 父进程留着往子进程写 stdin（write / closeStdin 用）；此处不关
 
 	if (!started)
 	{
 		CloseHandle(outRead);
 		CloseHandle(errRead);
-		Json::setError(result, L"启动失败：" + Util::winErr(GetLastError()) + L"：" + file);
+		Json::setError(result, L"process.spawnFailed", L"启动失败：" + Util::winErr(GetLastError()) + L"：" + file);
 		return;
 	}
 
@@ -383,6 +515,7 @@ void Process::spawn(const JsonObject& params, Page* page, JsonObject& result, IC
 	child.thread = procInfo.hThread;
 	child.outRead = outRead;
 	child.errRead = errRead;
+	child.inWrite = inWrite;
 	child.page = page;
 	child.frame = frame;
 	child.detached = detached;
@@ -423,7 +556,7 @@ void Process::removeByPage(Page* target)
 		auto& child = kv.second;
 		if (child.page != target) continue;
 		// 页面没了，它启动的子进程一起结束；detached 的是应用自己要求留下的，不杀
-		if (!child.detached) TerminateProcess(child.process, 1);
+		if (!child.detached) { child.killed = true; TerminateProcess(child.process, 1); }
 		child.page = nullptr;  // 断开目标：之后的事件不再推
 		child.frame = nullptr;
 	}
@@ -436,7 +569,7 @@ void Process::removeByFrame(Page* target, ICoreWebView2Frame2* targetFrame)
 	{
 		auto& child = kv.second;
 		if (child.page != target || child.frame.Get() != targetFrame) continue;
-		if (!child.detached) TerminateProcess(child.process, 1);
+		if (!child.detached) { child.killed = true; TerminateProcess(child.process, 1); }
 		child.page = nullptr;
 		child.frame = nullptr;
 	}

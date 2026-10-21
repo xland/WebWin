@@ -39,6 +39,12 @@ public:
 	/** 这个 iframe 没了：同上 */
 	static void removeByFrame(Page* page, ICoreWebView2Frame2* frame);
 private:
-	/** 建子进程：拼命令行 → 建两条管道 → CreateProcess → 起泵线程。失败时把原因填进 result */
+	/** 建子进程：拼命令行 → 建三条管道(stdout/stderr/stdin) → CreateProcess → 起泵线程。失败时把原因填进 result */
 	static void spawn(const JsonObject& params, Page* page, JsonObject& result, ICoreWebView2Frame2* frame);
+	/** 往子进程 stdin 写数据；data 按 encoding(utf8/base64) 解码为字节 */
+	static void write(const JsonObject& params, JsonObject& result);
+	/** 关闭父进程持有的 stdin 写端，让子进程读到 EOF */
+	static void closeStdin(const JsonObject& params, JsonObject& result);
+	/** 主动终止子进程（force 默认 true；Windows 上即 TerminateProcess 强杀） */
+	static void kill(const JsonObject& params, JsonObject& result);
 };

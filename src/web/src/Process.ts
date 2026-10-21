@@ -9,6 +9,16 @@ export interface SpawnOptions {
 	hide?: boolean;
 	/** 脱离页面生命周期：页面销毁时不杀它，默认 false */
 	detached?: boolean;
+	/**
+	 * 注入子进程的环境变量。默认与父环境**合并**（覆盖同名）。
+	 * 例如 `{ PATH: '...', NODE_ENV: 'production' }`
+	 */
+	env?: Record<string, string>;
+	/**
+	 * 是否继承当前进程环境。默认 true（`env` 覆盖式合并到父环境）。
+	 * 传 false = 用 `env` 作为子进程的**完整**环境（不继承任何父变量，沙箱 / 可复现构建用）
+	 */
+	inheritEnv?: boolean;
 }
 
 /** `stdout` / `stderr` 事件的载荷 */
@@ -24,6 +34,8 @@ export interface ProcessOutput {
 export interface ProcessExit {
 	/** 子进程的退出码 */
 	code: number;
+	/** 是否是被框架 / 调用方主动终止（kill 或页面销毁），而非自己退出 */
+	killed?: boolean;
 }
 
 /**
@@ -44,6 +56,8 @@ export interface ProcessExit {
  * - **监听要紧跟 await 同步挂上**。子进程一启动就开始输出，
  *   晚一步（比如先去 await 别的）开头几行就漏了
  * - 事件只推给**发起 spawn 的那个页面**；同时开着好几个子进程时各收各的
+ *
+ * 除了收输出，还能**往 stdin 喂输入**（`write` / `closeStdin`）和**主动终止**（`kill`）。
  *
  * 生命周期：页面被销毁时（切走 / 关窗口），它启动的、没标 `detached` 的
  * 子进程会被杀掉 —— 谁启动谁负责，不留孤儿进程
@@ -111,6 +125,28 @@ export class Process extends Ipc {
 		if (!set) return;
 		set.delete(handler as Handler);
 		if (set.size === 0) this.handlers.delete(name);
+	}
+
+	/**
+	 * 往子进程的 stdin 写数据。
+	 * @param data 文本或 base64 串（取决于 encoding）
+	 * @param encoding `'utf8'`（默认，文本）/ `'base64'`（字节）
+	 */
+	write(data: string, encoding: 'utf8' | 'base64' = 'utf8'): Promise<void> {
+		return Process.request(this.type, 'write', { id: this.id, data, encoding }).then(() => undefined);
+	}
+
+	/** 关闭 stdin 写端，让子进程读到 EOF（喂完输入后调用） */
+	closeStdin(): Promise<void> {
+		return Process.request(this.type, 'closeStdin', { id: this.id }).then(() => undefined);
+	}
+
+	/**
+	 * 主动终止子进程。
+	 * @param force 默认 true。Windows 上无论 force 与否都是 TerminateProcess 强杀
+	 */
+	kill(force = true): Promise<void> {
+		return Process.request(this.type, 'kill', { id: this.id, force }).then(() => undefined);
 	}
 
 	/** @internal 通道收到子进程事件时，按 proc 字段转给对应实例的监听者 */

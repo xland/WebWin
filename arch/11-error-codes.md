@@ -70,6 +70,13 @@ code = {domain}.{reason}
 | `display.invalidRegion` | 截图区域无效 |
 | `display.unknownEvent` | 订阅了不存在的显示器事件 |
 | `app.invalidSubscription` | 事件订阅名非法 |
+| `process.gone` | 子进程不存在 / 已退出（write / closeStdin / kill 时） |
+| `process.invalidParam` | 参数非法（如 `file` 为空） |
+| `process.pipeFailed` | 创建匿名管道失败 |
+| `process.spawnFailed` | `CreateProcess` 失败（找不到文件 / 权限不够） |
+| `process.encodeInvalid` | stdin 的 `data` 不是合法 base64 |
+| `process.writeFailed` | 写入 stdin 失败 |
+| `process.killFailed` | 终止子进程失败 |
 
 ## JS 侧用法
 
@@ -87,7 +94,7 @@ try {
 ## 接入状态
 
 - 协议 / JS：`Json::setError(result, code, message)` 重载已支持；`toError` 已兼容两种形态。
-- **已接入**：`fs`、`net`（见各自 `handleApi`）。
+- **已接入**：`fs`、`net`、`win`、`dialog`、`db`、`http`、`process`（见各自 `handleApi`）。
 - **按约定渐进补**：其余域按上表在各自 `handleApi` / 私有方法里把 `setError(result, msg)`
   升级为 `setError(result, "domain.reason", msg)`；动态透传类（如 sqlite 报错）用 `domain.error`。
   新增域时默认带 `domain.error` 兜底，再挑高频错误给具体 reason。
