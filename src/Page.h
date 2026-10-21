@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include <vector>
+#include <map>
 #include <wrl.h>
 #include <string>
 #include <WebView2.h>
@@ -55,11 +56,15 @@ private:
 	/** 把窗口事件推给本页面里的某个文档；frame 为空表示推给顶级文档 */
 	void emitEvent(const std::wstring& name, int winId, const JsonObject& payload, ICoreWebView2Frame2* frame = nullptr);
 	std::wstring getContentType(const std::wstring& fileName);
+	/** 校验消息来源：仅应用自身 origin 放行；结果按 origin 缓存，避免重复判定 */
+	bool isOriginAuthorized(const std::wstring& sourceUrl);
 	/** 处理一条上行消息。frame 是发消息的文档：iframe 传它自己，顶级文档传 nullptr */
 	void handleMessage(const wchar_t* json, ICoreWebView2Frame2* frame);
 	/** 下行发消息：有 frame 就只发给那个 iframe，否则发给顶级文档 */
 	void postJson(const wchar_t* json, ICoreWebView2Frame2* frame);
 private:
+	std::wstring appOrigin_;                         // 应用自身 origin（构造时取），来源校验基准
+	std::map<std::wstring, bool> originAuthCache_;   // origin -> 是否授权（同源消息复用判定结果）
 	Win* win;
 	ComPtr<ICoreWebView2> webview;
 	// 本页面里的 iframe。Frame2 既能收消息也能发消息；顶级文档不在其中

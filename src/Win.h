@@ -79,7 +79,6 @@ private:
 	std::wstring title;          // 空表示使用网页中的 title
 	std::wstring webviewPath{ L"." };
 	bool allowWindowOpen{ true };
-	bool allowRemoteSdk{ false }; // 是否允许把 SDK 注入到非应用自身来源的页面
 	// 是否用 WebView2 自带的 JS 对话框（alert / confirm / prompt / beforeunload）。
 	// false 时框架接管：关掉默认框，改弹 Windows 原生框（见 Page::onScriptDialog）
 	bool defaultJsDialog{ false };

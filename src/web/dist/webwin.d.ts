@@ -29,7 +29,6 @@
  */
 /** 框架注入 SDK 前写入 window 的配置 */
 interface WebWinConfig {
-    allowRemote: boolean;
     origin: string;
     /** 当前窗口的 id，由 C++ 注入；SDK 据此构造全局 win 对象 */
     winId?: number;

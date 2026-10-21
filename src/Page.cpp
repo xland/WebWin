@@ -47,6 +47,17 @@ namespace {
 		return frame2;
 	}
 
+	// 从完整 URL 取出 origin（scheme://authority），与 Win::getPageOrigin 同格式，便于直接比较
+	std::wstring extractOrigin(const std::wstring& url)
+	{
+		auto schemeEnd = url.find(L"://");
+		if (schemeEnd == std::wstring::npos) return url; // about:blank 等无 scheme，原样返回
+		auto hostStart = schemeEnd + 3;
+		auto hostEnd = url.find(L'/', hostStart);
+		if (hostEnd == std::wstring::npos) hostEnd = url.length();
+		return url.substr(0, hostEnd);
+	}
+
 	/**
 	 * 一次**还没弹**的 JS 对话框请求。
 	 *
@@ -203,7 +214,6 @@ void Page::injectSdk()
 
 	// SDK 据此判断"当前文档是不是应用自身的页面"
 	JsonObject config;
-	config.SetNamedValue(L"allowRemote", JsonValue::CreateBooleanValue(win->allowRemoteSdk));
 	config.SetNamedValue(L"origin", JsonValue::CreateStringValue(win->getPageOrigin()));
 	config.SetNamedValue(L"winId", JsonValue::CreateNumberValue(win->getId())); // 当前窗口 id
 	// 窗口形态：SDK 据此决定要不要自动铺 resize 把手（无边框 + 可缩放才铺）
@@ -296,12 +306,22 @@ void Page::emitEvent(const std::wstring& name, int winId, const JsonObject& payl
 
 HRESULT Page::onMsgReceived(ICoreWebView2* webview, ICoreWebView2WebMessageReceivedEventArgs* args)
 {
-    PWSTR jsonRaw;
-    auto hr = args->get_WebMessageAsJson(&jsonRaw);
-    if (FAILED(hr)) return S_OK;
-    handleMessage(jsonRaw, nullptr); // 顶级文档
-    CoTaskMemFree(jsonRaw);
-    return S_OK;
+	// 来源校验：非应用自身 origin 的消息直接丢弃，不路由到任何能力域。
+	// 纵深防御 —— JS 层 SDK 已按 origin 决定是否激活，这里再挡一道；
+	// 即便 JS 被绕过，C++ 也不会执行陌生来源的命令
+	PWSTR sourceRaw = nullptr;
+	if (SUCCEEDED(args->get_Source(&sourceRaw)) && sourceRaw)
+	{
+		std::wstring source(sourceRaw);
+		CoTaskMemFree(sourceRaw);
+		if (!isOriginAuthorized(source)) return S_OK;
+	}
+	PWSTR jsonRaw;
+	auto hr = args->get_WebMessageAsJson(&jsonRaw);
+	if (FAILED(hr)) return S_OK;
+	handleMessage(jsonRaw, nullptr); // 顶级文档
+	CoTaskMemFree(jsonRaw);
+	return S_OK;
 }
 
 HRESULT Page::onFrameCreated(ICoreWebView2* sender, ICoreWebView2FrameCreatedEventArgs* args)
@@ -326,13 +346,20 @@ HRESULT Page::onFrameCreated(ICoreWebView2* sender, ICoreWebView2FrameCreatedEve
 
 HRESULT Page::onFrameMsg(ICoreWebView2Frame* sender, ICoreWebView2WebMessageReceivedEventArgs* args)
 {
-    PWSTR jsonRaw;
-    auto hr = args->get_WebMessageAsJson(&jsonRaw);
-    if (FAILED(hr)) return S_OK;
-    auto frame2 = asFrame2(sender);
-    handleMessage(jsonRaw, frame2.Get());
-    CoTaskMemFree(jsonRaw);
-    return S_OK;
+	PWSTR sourceRaw = nullptr;
+	if (SUCCEEDED(args->get_Source(&sourceRaw)) && sourceRaw)
+	{
+		std::wstring source(sourceRaw);
+		CoTaskMemFree(sourceRaw);
+		if (!isOriginAuthorized(source)) return S_OK;
+	}
+	PWSTR jsonRaw;
+	auto hr = args->get_WebMessageAsJson(&jsonRaw);
+	if (FAILED(hr)) return S_OK;
+	auto frame2 = asFrame2(sender);
+	handleMessage(jsonRaw, frame2.Get());
+	CoTaskMemFree(jsonRaw);
+	return S_OK;
 }
 
 HRESULT Page::onFrameDestroyed(ICoreWebView2Frame* sender, IUnknown* args)
@@ -344,6 +371,17 @@ HRESULT Page::onFrameDestroyed(ICoreWebView2Frame* sender, IUnknown* args)
     Process::removeByFrame(this, frame2.Get()); // 这个 iframe 启动的子进程一起结束
     std::erase_if(frames, [&](const ComPtr<ICoreWebView2Frame2>& item) { return item.Get() == frame2.Get(); });
     return S_OK;
+}
+
+bool Page::isOriginAuthorized(const std::wstring& sourceUrl)
+{
+	if (sourceUrl.empty()) return false; // 拿不到来源，保守丢弃
+	auto origin = extractOrigin(sourceUrl);
+	auto it = originAuthCache_.find(origin);
+	if (it != originAuthCache_.end()) return it->second; // 同源消息复用判定结果
+	bool ok = (origin == appOrigin_);
+	originAuthCache_[origin] = ok;
+	return ok;
 }
 
 void Page::handleMessage(const wchar_t* json, ICoreWebView2Frame2* frame)
