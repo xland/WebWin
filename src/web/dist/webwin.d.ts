@@ -263,36 +263,81 @@ interface NetAdapter {
     /** IPv4 / IPv6 地址；**不含**回环地址（`127.0.0.1` / `::1`） */
     addresses: string[];
 }
+/** 命名管道创建选项 */
+interface NetPipeOptions {
+    /**
+     * 接收端解码方式（数据下行时如何呈现 payload 字节）。默认 `utf8`：
+     * - `utf8`：当文本字符串
+     * - `base64`：把字节 base64 成字符串
+     * - `binary`：当字节（当前以 base64 字符串呈现，真正的 ArrayBuffer 下行待做）
+     */
+    encoding?: 'utf8' | 'base64' | 'binary';
+    /** 管道缓冲区大小（字节），可选 */
+    bufferSize?: number;
+}
+/** `data` 事件回调收到的内容（字符串；binary 接收时也是 base64 字符串） */
+type NetData = string;
 /**
  * 网络能力（net 域）。
  *
- * 这是个**类型**而不是实例：直接用 `Net.getAddress()`，不要 `new Net()`。
+ * - **静态方法**：`Net.getAddress()` 取网卡信息（与窗口无关）。
+ * - **命名管道**：`Net.createNamedPipeServer(name)` / `Net.createNamedPipeClient(name)`
+ *   返回 `Net` 实例 —— 实例可 `send()` 发数据、`on('data' | 'connect' | 'close' | 'error', cb)`
+ *   监听、 `close()` 关闭。
+ *
+ * **隔离**：命名管道与将来的 socket 通信在内部互不耦合 —— 两者共用同一套
+ * connId 路由 + 事件下行（`net` 域隐藏事件），但具体的传输实现（pipe / socket）
+ * 各自独立，将来加 socket 不动 pipe 的代码。
  *
  * ```ts
- * for (const adapter of await Net.getAddress()) {
- *   console.log(adapter.name, adapter.addresses);
- * }
- * ```
+ * // 客户端
+ * const client = await Net.createNamedPipeClient('my-pipe');
+ * client.on('data', (chunk) => console.log('收到', chunk));
+ * await client.send('hello');
  *
- * 网卡信息原来挂在 `os` 域下（`os.getIpAddr()`），现已迁到这里 ——
- * 网络这块以后会往这个域里加东西（联网状态变化、本机端口占用 …），
- * 跟"系统信息"不是一个方向
+ * // 服务端（多客户端并发）：每个连进来的客户端是一个独立的 Net 实例
+ * const server = await Net.createNamedPipeServer('my-pipe');
+ * server.on('connect', (conn) => {
+ *   conn.on('data', (chunk) => conn.send('echo: ' + chunk));
+ * });
+ * ```
  */
 declare class Net extends Ipc {
+    private connId;
+    private transport;
     private static readonly domain;
     protected type: string;
-    /** 不给实例化：本域只有静态方法 */
-    private constructor();
     /**
-     * 取本机各网卡的名字、MAC 与 IP 地址。
-     *
-     * **已过滤掉**三类，让返回值直接可用（想看原始清单得另外加方法）：
-     * 未启用的网卡、没有 MAC 的（回环、虚拟网卡之类）、回环地址。
-     *
-     * 一台机器通常有多块网卡（有线、Wi-Fi、虚拟机网卡…），所以返回的是**数组**；
-     * 且一块网卡可以有多个地址（IPv4 + IPv6）
+     * 不给外部 new：通过静态工厂拿到实例。
+     * `transport` 标记这个实例是 server 监听 / client 连接 / server 上的某个客户端连接，
+     * 只用于 `connect` 事件里决定回调参数形态。
      */
+    private constructor();
+    static createNamedPipeServer(name: string, options?: NetPipeOptions): Promise<Net>;
+    static createNamedPipeClient(name: string, options?: NetPipeOptions): Promise<Net>;
+    /** 取本机各网卡的名字、MAC 与 IP 地址（静态，与窗口无关） */
     static getAddress(): Promise<NetAdapter[]>;
+    private static subscriber;
+    private static byConn;
+    /** 登记实例并懒初始化域订阅 */
+    private static adopt;
+    private static ensureSubscribed;
+    /** 调用父类 Ipc 的域订阅（仅 subscriber 用，实例的 on 不走到这） */
+    private domainOn;
+    private listeners;
+    on(event: 'data', cb: (data: NetData) => void): () => void;
+    on(event: 'connect', cb: (conn: Net) => void): () => void;
+    on(event: 'close', cb: () => void): () => void;
+    on(event: 'error', cb: (err: {
+        message: string;
+    }) => void): () => void;
+    off(event: string, cb: (payload: any) => void): void;
+    /** 把路由到的事件转交给本实例的监听者（按事件形态适配回调参数） */
+    private emit;
+    /** 发数据。encoding 决定如何把 data 转成管道字节（utf8 文本 / base64 串） */
+    send(data: string, encoding?: 'utf8' | 'base64'): Promise<void>;
+    /** 关闭连接（client / server 上的某个客户端连接），或停止监听并关闭所有连接（server） */
+    close(): Promise<void>;
 }
 
 // ---- Os ----

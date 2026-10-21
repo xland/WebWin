@@ -11,6 +11,7 @@
 #include "Db.h"
 #include "Dialog.h"
 #include "Http.h"
+#include "Net.h"
 #include "Tray.h"
 #include "Env.h"
 #include "Json.h"
@@ -636,6 +637,7 @@ LRESULT Win::winProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		}
 		Menu::removeByPage(winObj->page.get()); // 本页建的菜单一起销毁：点击已无处可推
 		Dialog::removeByPage(winObj->page.get()); // 本页排着的对话框请求：窗口没了就弹不了
+		Net::removeByPage(winObj->page.get());    // 本页建的命名管道连接一起关：不然读线程空转、句柄泄漏
 		Db::removeByPage(winObj->page.get());     // 本页开的数据库连接一起关：不然文件锁一直占着
 		Process::removeByPage(winObj->page.get()); // 本页启动的子进程一起结束：不留孤儿进程（detached 的除外）
 		// 本页还在等的异步任务（http 的请求、fs 的读写）一起丢掉：
